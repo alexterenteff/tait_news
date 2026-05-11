@@ -15,7 +15,7 @@ TELEGRAM_CHANNELS = [
 ]
 
 # Твой folder_id из Yandex Cloud (где создан сервисный аккаунт)
-YANDEX_FOLDER_ID = "b1gxxxxxxxxxxxxxxxx"  # ← ВСТАВЬ СВОЙ!
+YANDEX_FOLDER_ID = "aje1g1ells11bc7c042q"  # ← ВСТАВЬ СВОЙ!
 
 def improve_title_with_yandex_gpt(original_title, retry=0):
     """Переписывает заголовок через Yandex GPT с авторизацией по API-ключу"""
