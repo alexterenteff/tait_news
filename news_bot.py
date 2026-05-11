@@ -1,135 +1,116 @@
 import requests
 import os
-import json
-import time
 
-# === ТВОИ СЕКРЕТЫ ИЗ GITHUB ===
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-def get_news_from_deepseek(retry_count=0):
-    """
-    Получает новости, используя deepseek-chat (не deepseek-reasoner!)
-    Эта модель работает с веб-поиском стабильно и без ошибки reasoning_content.
-    """
-    
-    url = "https://api.deepseek.com/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
-    }
-    
-    # Промпт для модели deepseek-chat
-    prompt = """Ты — редактор новостного канала. Твоя задача — найти 5 самых свежих новостей об ИИ.
-Действуй строго по алгоритму:
-1. Сначала используй поисковый инструмент, чтобы найти актуальные новости о событиях за последние 1-2 дня.
-2. После получения данных, НЕМЕДЛЕННО сформулируй ответ на русском языке.
-3. НЕ пиши "я ищу", "я думаю" или "анализирую". Только готовый результат.
-4. Если поиск не дал результатов, напиши "Новостей за последний час нет".
-
-КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать "режим мышления". Отвечай сразу от лица ассистента.
-
-Формат ответа (Markdown):
-Для каждой новости:
-**1. Заголовок новости**
-Краткое описание.
-🔗 [Источник](ссылка_на_источник)"""
-
-    # Теперь используем модель deepseek-chat, которая работает со всем инструментарием без ошибок
-    payload = {
-        "model": "deepseek-chat",  # <-- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: используем chat, а не reasoner
-        "messages": [{"role": "user", "content": prompt}],
-        "tools": [{"type": "web_search_20250305", "max_uses": 3}],
-        "max_tokens": 2000,
-        "temperature": 0.3  
-    }
-    
-    try:
-        print(f"🔍 Запрос к DeepSeek (попытка {retry_count + 1}/2)...")
-        response = requests.post(url, headers=headers, json=payload, timeout=90)
+def is_ai_news(title):
+    """Проверяет, похож ли заголовок на новость про ИИ"""
+    keywords = [
+        # Русские ключевые слова
+        'ии', 'ai', 'искусственный интеллект', 'нейросеть', 'нейронная сеть',
+        'машинное обучение', 'ml', 'большая языковая модель', 'llm', 'чат-бот',
+        'компьютерное зрение', 'распознавание лиц', 'генеративный ии',
         
+        # Названия AI-компаний (международные)
+        'openai', 'chatgpt', 'gpt-4', 'gpt-5', 'sora', 'dalle', 'dall-e',
+        'deepseek', 'googledeepmind', 'gemini', 'google ai',
+        'anthropic', 'claude', 'meta ai', 'llama', 'meta llama',
+        'microsoft ai', 'copilot', 'bing ai', 'bings',
+        'amazon ai', 'aws ai', 'bedrock ai',
+        'nvidia', 'nvidia ai', 'cuda', 'dgx',
+        'xai', 'grok', 'elon mask ia',
+        'midjourney', 'stable diffusion', 'stability ai',
+        'hugging face', 'perplexity ai', 'character ai',
+        'cohere', 'mistral ai', 'adept', 'runway ml',
+        
+        # Китайские AI-компании
+        'baidu ernie', 'ernie bot', 'alibaba tongyi', 'qwen',
+        'tencent hunyuan', 'kuaishou kling', 'kling ai',
+        'moonshot ai', 'stepfun', 'zhipu ai', 'chatglm',
+        'minimax', 'sensetime', 'megvii',
+        'algorithm of thoughts', '01 ai', 'spark desk',
+        
+        # Российские AI-компании и проекты
+        'yandex gpt', 'yandexart', 'yandex gpt', 'yandex ai',
+        'sber ai', 'giga chat', 'gigachat', 'candinsky', 'kandinsky',
+        'salute ai', 'sber gpt', 'sberdevice', 'smartmark',
+        'vk ai', 'vkontakte ai', 'mail ru ai', 'mts ai',
+        
+        # Зарубежные AI-продукты
+        'd-id', 'synthesia', 'hey gen', 'heyげん', 'pika labs', 'runway gen',
+        'capcut ai', 'bytedance ai', 'tiktok ai',
+        'replika', 'pi ai', 'inflection ai', 'glean',
+        'cognition ai', 'devin ai', 'replit ai', 'cursor ai',
+        'github copilot', 'codeium', 'tabnine', 'amazon q',
+        
+        # AI-железо и чипы
+        'nvidia h100', 'nvidia b200', 'blackwell', 'amd instinct',
+        'intel gaudi', 'apple m4 neural', 'qualcomm ai',
+        
+        # Технологии и исследования
+        'transformer', 'diffusion', 'latent diffusion', 'vae',
+        'rag', 'agent', 'multi modal', 'multimodal m',
+        'agi', 'asi', 'superintelligence', 'alignment',
+        'fine tuning', 'rlhf', 'constitutional ai', 'mechanistic' 'interpretability'
+    ]
+    
+    title_lower = title.lower()
+    for kw in keywords:
+        if kw in title_lower:
+            return True
+    return False
+
+def get_news():
+    """Получает новости через конвертер Aimylogic"""
+    converter_url = "https://tools.aimylogic.com/api/rss2json?url=https://vc.ru/rss/all"
+    try:
+        response = requests.get(converter_url, timeout=10)
         if response.status_code == 200:
-            result = response.json()
-            # Пытаемся получить content
-            message_content = result['choices'][0]['message'].get('content')
-            
-            if message_content and len(message_content.strip()) > 50:
-                print("✅ DeepSeek вернул полноценный ответ.")
-                return message_content
-            else:
-                # Проверяем, может быть, DeepSeek просто сказал, что ничего не нашёл?
-                if message_content and "Новостей за последний час нет" in message_content:
-                     print("⚠️ DeepSeek не нашёл новостей.")
-                     return None
-                else:
-                    print(f"⚠️ DeepSeek вернул пустой или короткий ответ: '{message_content}'")
-                    if retry_count < 1:
-                        print("🔄 Повторная попытка через 10 секунд...")
-                        time.sleep(10)
-                        return get_news_from_deepseek(retry_count + 1)
-                    else:
-                        return None
-        else:
-            print(f"❌ Ошибка API: {response.status_code}")
-            print(f"Ответ: {response.text[:200]}...")
-            return None
-            
+            news_data = response.json()
+            if isinstance(news_data, list):
+                articles = []
+                for item in news_data[:20]:  # проверяем 20 последних новостей
+                    title = item.get('title', '')
+                    if is_ai_news(title):
+                        articles.append({
+                            'title': title,
+                            'link': item.get('link', '#')
+                        })
+                        print(f"✅ Найдено: {title[:60]}...")
+                return articles
     except Exception as e:
         print(f"❌ Ошибка: {e}")
-        return None
+    return []
 
-def clean_telegram_message(message):
-    """Финальная очистка сообщения перед отправкой."""
-    if not message:
-        return "⚠️ Не удалось получить новости. DeepSeek не нашёл свежих событий. Попробуйте позже.\n\n📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
-    
-    # Удаляем пугающие пользователя фразы, которые иногда проскакивают
-    import re
-    message = re.sub(r'Я ищу...|Я думаю...|Я анализирую...|Поиск...', '', message, flags=re.IGNORECASE)
-    message = message.strip()
-    
-    if len(message) < 30:
-        return "⚠️ Новостей пока нет или ответ слишком короткий. Загляните позже!\n\n📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
-    
-    # Добавляем футер, если его нет
-    if "@tAiT_news" not in message:
-        message += "\n\n📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
-    
-    return message
-
-def send_to_telegram(message):
-    """Отправляет результат в Telegram"""
-    final_message = clean_telegram_message(message)
+def send_to_telegram(articles):
+    if not articles:
+        message = "🤖 За последнее время нет новостей об ИИ.\n\n📱 Подпишись: @tAiT_news"
+    else:
+        message = "🧠 **Свежие новости об ИИ**\n\n"
+        for art in articles[:7]:  # отправляем не больше 7 новостей
+            message += f"🔹 [{art['title']}]({art['link']})\n\n"
+        message += "📱 Подпишись: @tAiT_news"
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHANNEL_ID,
-        "text": final_message,
+        "text": message,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": False
+        "disable_web_page_preview": True
     }
-    
-    try:
-        result = requests.post(url, json=payload, timeout=30).json()
-        if result.get("ok"):
-            print("✅ Сообщение отправлено в Telegram!")
-        else:
-            print(f"❌ Ошибка Telegram: {result}")
-        return result
-    except Exception as e:
-        print(f"❌ Ошибка отправки: {e}")
-        return {"ok": False}
+    return requests.post(url, json=payload).json()
 
 def main():
-    print("🚀 Запуск бота с веб-поиском (модель deepseek-chat)...")
-    
-    if not all([BOT_TOKEN, CHANNEL_ID, DEEPSEEK_API_KEY]):
-        print("❌ Ошибка: не хватает секретов!")
-        return
-    
-    news = get_news_from_deepseek()
-    send_to_telegram(news)
+    print("🚀 Запуск бота для поиска новостей об ИИ...")
+    print(f"📡 Канал: {CHANNEL_ID}")
+    articles = get_news()
+    print(f"📰 Найдено новостей: {len(articles)}")
+    result = send_to_telegram(articles)
+    if result.get('ok'):
+        print("✅ Отправлено успешно!")
+    else:
+        print(f"❌ Ошибка: {result}")
 
 if __name__ == "__main__":
     main()
