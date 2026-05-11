@@ -21,7 +21,10 @@ TELEGRAM_CHANNELS = [
 def improve_title_with_deepseek(original_title, retry=0):
     """Переписывает заголовок через DeepSeek (OpenRouter)"""
     if not OPENROUTER_API_KEY:
+        print(f"  ⚠️ Нет API-ключа, пропускаем улучшение")
         return original_title
+    
+    print(f"  🔄 DeepSeek запрос для: {original_title[:50]}...")
     
     try:
         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -47,16 +50,18 @@ def improve_title_with_deepseek(original_title, retry=0):
             "temperature": 0.7
         }
         
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        print(f"  ⏳ Отправка запроса к OpenRouter...")
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
         
         if response.status_code == 200:
             result = response.json()
             improved = result['choices'][0]['message']['content'].strip()
             improved = improved.strip('"').strip("'")
+            print(f"  ✅ DeepSeek ответ: {improved[:50]}...")
             if len(improved) > 5 and len(improved) <= 100:
-                print(f"  ✨ DeepSeek: '{original_title[:40]}...' → '{improved[:40]}...'")
                 return improved
             else:
+                print(f"  ⚠️ Ответ слишком короткий или длинный: {len(improved)} символов")
                 return original_title
         elif response.status_code == 401:
             print(f"  ❌ Ошибка 401: неверный API-ключ OpenRouter")
@@ -65,14 +70,22 @@ def improve_title_with_deepseek(original_title, retry=0):
             print(f"  ⚠️ Лимит запросов DeepSeek, пробуем без улучшения")
             return original_title
         else:
-            print(f"  ⚠️ DeepSeek ошибка {response.status_code}")
-            if retry < 1:
-                time.sleep(2)
+            print(f"  ❌ Ошибка API: {response.status_code}")
+            if retry < 2:
+                print(f"  🔄 Повторная попытка {retry+1}/2 через 5 секунд...")
+                time.sleep(5)
                 return improve_title_with_deepseek(original_title, retry+1)
             return original_title
             
+    except requests.exceptions.Timeout:
+        print(f"  ❌ Таймаут запроса к DeepSeek")
+        if retry < 2:
+            print(f"  🔄 Повторная попытка {retry+1}/2 через 5 секунд...")
+            time.sleep(5)
+            return improve_title_with_deepseek(original_title, retry+1)
+        return original_title
     except Exception as e:
-        print(f"  ⚠️ DeepSeek исключение: {e}")
+        print(f"  ❌ Исключение: {e}")
         return original_title
 
 def is_ai_news(text):
@@ -150,7 +163,12 @@ def get_news_from_telegram(channel_name, limit=8):
                     post_link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
                     
                     # Улучшаем заголовок через DeepSeek
-                    improved_title = improve_title_with_deepseek(text[:200])
+                    original_title = text[:200]
+                    improved_title = improve_title_with_deepseek(original_title)
+                    
+                    # Если DeepSeek не сработал, оставляем оригинал
+                    if not improved_title or len(improved_title) < 5:
+                        improved_title = original_title
                     
                     articles.append({
                         'title': improved_title[:120] + ('...' if len(improved_title) > 120 else ''),
@@ -219,25 +237,21 @@ def main():
     # === ДИАГНОСТИКА: ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===
     print("🔍 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ:")
     
-    # Проверяем TELEGRAM_BOT_TOKEN
     if BOT_TOKEN:
         print(f"   ✅ TELEGRAM_BOT_TOKEN: НАЙДЕН (начинается с {BOT_TOKEN[:10]}...)")
     else:
         print("   ❌ TELEGRAM_BOT_TOKEN: НЕ НАЙДЕН")
     
-    # Проверяем CHANNEL_ID
     if CHANNEL_ID:
         print(f"   ✅ CHANNEL_ID: НАЙДЕН ({CHANNEL_ID})")
     else:
         print("   ❌ CHANNEL_ID: НЕ НАЙДЕН")
     
-    # Проверяем OPENROUTER_API_KEY (самое важное)
     if OPENROUTER_API_KEY:
         print(f"   ✅ OPENROUTER_API_KEY: НАЙДЕН (начинается с {OPENROUTER_API_KEY[:12]}...)")
     else:
         print("   ❌ OPENROUTER_API_KEY: НЕ НАЙДЕН")
         print("   ⚠️ ВНИМАНИЕ: DeepSeek не будет работать без OPENROUTER_API_KEY")
-        print("   Добавь секрет в GitHub: Settings → Secrets → Actions")
     # =============================================
     
     if not BOT_TOKEN or not CHANNEL_ID:
