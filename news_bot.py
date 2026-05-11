@@ -1,25 +1,31 @@
-import feedparser
 import requests
-from datetime import datetime
+import os
 
-# Настройки
-RSS_FEED = "https://vc.ru/rss/all"  # RSS-лента всех новостей vc.ru
+# Твои данные из секретов GitHub
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
-def get_latest_article():
-    """Получает самую свежую статью с vc.ru через RSS"""
-    feed = feedparser.parse(RSS_FEED)
+def get_latest_vc_article():
+    """Получает последнюю статью с vc.ru через их API"""
+    url = "https://api.vc.ru/v1.7/feed"
+    params = {
+        "per_page": 1,
+        "sort": "date"
+    }
     
-    if not feed.entries:
-        return None, None
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        if data and data.get('result'):
+            article = data['result'][0]
+            title = article.get('title', 'Без заголовка')
+            link = f"https://vc.ru/{article.get('id')}"
+            return title, link
+    except Exception as e:
+        print(f"Ошибка при получении статьи: {e}")
     
-    # Первая запись в RSS — самая новая
-    latest = feed.entries[0]
-    title = latest.title
-    link = latest.link
-    
-    return title, link
+    return None, None
 
 def send_to_telegram(title, link):
     """Отправляет статью в Telegram"""
@@ -32,12 +38,16 @@ def send_to_telegram(title, link):
         "parse_mode": "Markdown"
     }
     
-    response = requests.post(url, json=payload)
-    return response.json()
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        print(f"Ошибка отправки в Telegram: {e}")
+        return {"ok": False}
 
 def main():
     print("🚀 Проверяем vc.ru...")
-    title, link = get_latest_article()
+    title, link = get_latest_vc_article()
     
     if title and link:
         print(f"📰 Найдено: {title}")
