@@ -6,10 +6,10 @@ import sys
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
-def escape_markdown(text):
-    """Экранирует только символы, которые ломают Markdown-ссылку в Telegram"""
-    # Экранируем: _ * [ ] ( ) ~ ` > # + - = | { } . !
-    special_chars = r'([_*\[\]()~`>#+\-=|{}.!])'
+def escape_markdown_v2(text):
+    """Экранирует все спецсимволы для Telegram MarkdownV2"""
+    # Символы, которые нужно экранировать в MarkdownV2
+    special_chars = r'([_*\[\]()~`>#+\-=|{}.!\\])'
     return re.sub(special_chars, r'\\\1', text)
 
 def is_ai_news(title):
@@ -100,12 +100,13 @@ def send_to_telegram(articles):
         if not articles:
             message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
         else:
-            message = "🧠 **Свежие новости об ИИ**\n\n"
+            message = "🧠 *Свежие новости об ИИ*\n\n"
             for art in articles[:10]:
-                # Экранируем заголовок для Markdown
-                safe_title = escape_markdown(art['title'])
-                # Формируем ссылку: [текст](ссылка)
-                message += f"• [{safe_title}]({art['link']})\n\n"
+                # Экранируем заголовок и ссылку
+                safe_title = escape_markdown_v2(art['title'])
+                # Ссылку экранировать не нужно, но для MarkdownV2 нужно экранировать )
+                safe_link = art['link'].replace(')', '\\)')
+                message += f"• [{safe_title}]({safe_link})\n\n"
             message += "📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
         
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
