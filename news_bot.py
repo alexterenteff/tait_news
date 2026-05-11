@@ -1,16 +1,9 @@
 import requests
 import os
-import re
 import sys
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
-
-def escape_markdown_v2(text):
-    """Экранирует все спецсимволы для Telegram MarkdownV2"""
-    # Символы, которые нужно экранировать в MarkdownV2
-    special_chars = r'([_*\[\]()~`>#+\-=|{}.!\\])'
-    return re.sub(special_chars, r'\\\1', text)
 
 def is_ai_news(title):
     blacklist = [
@@ -55,7 +48,6 @@ def get_news_from_vc():
                         articles.append({
                             'title': title,
                             'link': item.get('link', '#'),
-                            'source': 'vc.ru'
                         })
     except Exception as e:
         print(f"Ошибка vc.ru: {e}")
@@ -75,7 +67,6 @@ def get_news_from_habr():
                         articles.append({
                             'title': title,
                             'link': item.get('link', '#'),
-                            'source': 'habr'
                         })
     except Exception as e:
         print(f"Ошибка Habr: {e}")
@@ -100,21 +91,16 @@ def send_to_telegram(articles):
         if not articles:
             message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
         else:
-            message = "🧠 *Свежие новости об ИИ*\n\n"
+            message = "🧠 Свежие новости об ИИ\n\n"
             for art in articles[:10]:
-                # Экранируем заголовок и ссылку
-                safe_title = escape_markdown_v2(art['title'])
-                # Ссылку экранировать не нужно, но для MarkdownV2 нужно экранировать )
-                safe_link = art['link'].replace(')', '\\)')
-                message += f"• [{safe_title}]({safe_link})\n\n"
-            message += "📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
+                message += f"• {art['title']}\n{art['link']}\n\n"
+            message += "📱 Подпишись: @tAiT_news"
         
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": CHANNEL_ID,
             "text": message,
-            "parse_mode": "MarkdownV2",
-            "disable_web_page_preview": False
+            "disable_web_page_preview": True
         }
         result = requests.post(url, json=payload, timeout=15).json()
         
