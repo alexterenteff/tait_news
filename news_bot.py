@@ -1,117 +1,141 @@
 import requests
 import os
-import feedparser
-import re
+import json
 
 # === ТВОИ СЕКРЕТЫ ИЗ GITHUB ===
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-def is_ai_related(title, summary):
-    """Проверяет, относится ли новость к ИИ."""
-    # Объединяем заголовок и описание, приводим к нижнему регистру
-    text_to_check = f"{title} {summary}".lower()
+def get_news_from_deepseek():
+    """Получает свежие новости об ИИ через DeepSeek API с веб-поиском"""
     
-    # Список ключевых слов (можно легко дополнять)
-    keywords = [
-        'ии', 'ai', 'искусственный интеллект', 'нейросеть', 'нейронная сеть',
-        'машинное обучение', 'ml', 'deep learning', 'чат-бот', 'llm', 'gpt',
-        'deepseek', 'аналитика данных', 'компьютерное зрение', 'робот',
-        'автопилот', 'беспилотник', 'большие данные', 'big data', 'распознавание'
-    ]
+    url = "https://api.deepseek.com/chat/completions"
     
-    # Ищем любое из ключевых слов как отдельное слово
-    pattern = r'\b(' + '|'.join(keywords) + r')\b'
-    return bool(re.search(pattern, text_to_check))
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+    }
+    
+    # Промпт для DeepSeek — просим найти и красиво оформить новости
+    prompt = """Ты — редактор новостного канала об искусственном интеллекте.
+    
+Найди в интернете 5 самых важных новостей об ИИ, AI, нейросетях за последние сутки.
 
-def get_news():
-    """Получает новости из RSS-ленты vc.ru и фильтрует по теме ИИ"""
-    
-    # Используем главную RSS-ленту vc.ru
-    rss_url = "https://vc.ru/rss/all"
+Для каждой новости укажи:
+1. Заголовок
+2. Краткое описание (1-2 предложения)
+3. Ссылку на источник
+
+Оформи ответ в таком формате:
+
+🤖 **СВЕЖИЕ НОВОСТИ ИИ**
+
+**1. [Заголовок]**
+[Описание]
+🔗 [Источник]
+
+**2. [Заголовок]**
+[Описание]
+🔗 [Источник]
+
+... и так до 5 новостей.
+
+В конце добавь: 📱 Подпишись: @tAiT_news
+
+Используй эмодзи по теме (🤖, 🧠, 💡, ⚡, 📰).
+Ответ должен быть только на русском языке."""
+
+    payload = {
+        "model": "deepseek-chat",  # или deepseek-v4-flash для более быстрого ответа
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "tools": [
+            {
+                "type": "web_search_20250305",  # включает веб-поиск
+                "name": "web_search",
+                "max_uses": 3
+            }
+        ],
+        "max_tokens": 2000,
+        "temperature": 0.7
+    }
     
     try:
-        print(f"Загружаем RSS: {rss_url}")
-        feed = feedparser.parse(rss_url)
+        print("🔍 Отправляем запрос DeepSeek с веб-поиском...")
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
         
-        if feed.bozo:  # если есть ошибки парсинга
-            print(f"Предупреждение при парсинге RSS: {feed.bozo_exception}")
-        
-        articles = []
-        for entry in feed.entries[:20]:  # Проверяем последние 20 записей
-            title = entry.get('title', '')
-            summary = entry.get('summary', '')
+        if response.status_code == 200:
+            result = response.json()
+            message = result['choices'][0]['message']['content']
+            print("✅ DeepSeek успешно ответил")
+            return message
+        else:
+            print(f"❌ Ошибка API: {response.status_code}")
+            print(f"Ответ: {response.text}")
+            return None
             
-            # Проверяем, относится ли новость к ИИ
-            if is_ai_related(title, summary):
-                articles.append({
-                    'title': title,
-                    'link': entry.get('link', '#')
-                })
-                print(f"✅ Найдена новость об ИИ: {title[:50]}...")
-        
-        print(f"📰 Всего найдено релевантных новостей: {len(articles)}")
-        return articles
-        
     except Exception as e:
-        print(f"❌ Ошибка при получении новостей: {e}")
-        return []
+        print(f"❌ Ошибка при запросе к DeepSeek: {e}")
+        return None
 
-def send_to_telegram(articles):
-    """Отправляет новости в Telegram канал"""
+def send_to_telegram(message):
+    """Отправляет сообщение в Telegram канал"""
     
-    if not articles:
-        message = "🤖 За последний час не найдено новых новостей об искусственном интеллекте.\n\n📱 Подпишись: @tAiT"
-    else:
-        message = "🧠 **Свежие новости об ИИ**\n\n"
-        for art in articles[:7]:  # Отправляем не больше 7 новостей за раз
-            message += f"🔹 [{art['title']}]({art['link']})\n\n"
-        
-        message += "📱 Подпишись: @tAiT_news"
+    if not message:
+        message = "❌ Не удалось получить новости от DeepSeek. Попробуйте позже.\n\n📱 Подпишись: @tAiT_news"
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHANNEL_ID,
         "text": message,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": True
+        "disable_web_page_preview": False  # Пусть ссылки отображаются
     }
     
     try:
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=30)
         result = response.json()
         if result.get("ok"):
-            print("✅ Сообщение успешно отправлено в Telegram")
+            print("✅ Сообщение отправлено в Telegram")
         else:
             print(f"❌ Ошибка Telegram: {result}")
         return result
     except Exception as e:
-        print(f"❌ Ошибка отправки в Telegram: {e}")
+        print(f"❌ Ошибка отправки: {e}")
         return {"ok": False}
 
 def main():
-    print("🚀 Запуск бота для поиска новостей об ИИ...")
+    print("🚀 Запуск бота на DeepSeek с веб-поиском...")
     
     # Проверяем наличие секретов
     if not BOT_TOKEN:
-        print("❌ ОШИБКА: Не найден TELEGRAM_BOT_TOKEN")
+        print("❌ ОШИБКА: TELEGRAM_BOT_TOKEN не найден")
         return
     if not CHANNEL_ID:
-        print("❌ ОШИБКА: Не найден CHANNEL_ID")
+        print("❌ ОШИБКА: CHANNEL_ID не найден")
+        return
+    if not DEEPSEEK_API_KEY:
+        print("❌ ОШИБКА: DEEPSEEK_API_KEY не найден")
+        print("   Добавь его в Secrets в GitHub!")
         return
     
-    print(f"✅ Telegram бот найден, канал: {CHANNEL_ID}")
+    print(f"✅ Все секреты на месте. Канал: {CHANNEL_ID}")
     
-    # Получаем и фильтруем новости
-    articles = get_news()
+    # Получаем новости от DeepSeek
+    news_message = get_news_from_deepseek()
     
-    # Отправляем результат в Telegram
-    result = send_to_telegram(articles)
+    # Отправляем в Telegram
+    result = send_to_telegram(news_message)
     
     if result.get("ok"):
-        print("✅ Работа успешно завершена!")
+        print("✅ Новости опубликованы в канале!")
     else:
-        print("❌ Произошла ошибка при отправке")
+        print("❌ Не удалось опубликовать новости")
 
 if __name__ == "__main__":
     main()
