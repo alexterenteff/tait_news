@@ -1,18 +1,32 @@
 import requests
 import os
 import sys
+import time
+from bs4 import BeautifulSoup
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
-def is_ai_news(title):
+# === НАСТРОЙКИ ===
+RSS_SOURCES = [
+    "https://tools.aimylogic.com/api/rss2json?url=https://vc.ru/rss/all",
+    "https://tools.aimylogic.com/api/rss2json?url=https://habr.com/ru/rss/hub/ai/all/?fl=ru"
+]
+
+TELEGRAM_CHANNELS = [
+    "durov",      # Павел Дуров — часто про ИИ, технологии
+    "halikov"     # Халиков — популярный AI-канал
+]
+
+def is_ai_news(text):
+    """Проверяет, относится ли текст к ИИ"""
     blacklist = [
         'санкц', 'дуа липа', 'samsung', 'фитнес-трекер', 'whoop', 'oura',
-        'onlyfans', 'авиаперевозк', 'github', 'день 153', 'день 154'
+        'onlyfans', 'авиаперевозк', 'день 153', 'день 154'
     ]
-    title_lower = title.lower()
+    text_lower = text.lower()
     for bad in blacklist:
-        if bad in title_lower:
+        if bad in text_lower:
             return False
     
     keywords = [
@@ -30,100 +44,143 @@ def is_ai_news(title):
     ]
     
     for kw in keywords:
-        if kw in title_lower:
+        if kw in text_lower:
             return True
     return False
 
-def get_news_from_vc():
-    converter_url = "https://tools.aimylogic.com/api/rss2json?url=https://vc.ru/rss/all"
+def get_news_from_rss(converter_url):
+    """Получает новости из RSS через конвертер"""
     articles = []
     try:
         response = requests.get(converter_url, timeout=15)
         if response.status_code == 200:
             news_data = response.json()
             if isinstance(news_data, list):
-                for item in news_data[:25]:
+                for item in news_data[:15]:
                     title = item.get('title', '')
+                    link = item.get('link', '#')
                     if title and is_ai_news(title):
                         articles.append({
                             'title': title,
-                            'link': item.get('link', '#'),
+                            'link': link,
+                            'source': 'RSS'
                         })
     except Exception as e:
-        print(f"Ошибка vc.ru: {e}")
+        print(f"Ошибка RSS: {e}")
     return articles
 
-def get_news_from_habr():
-    converter_url = "https://tools.aimylogic.com/api/rss2json?url=https://habr.com/ru/rss/hub/ai/all/?fl=ru"
+def get_news_from_telegram(channel_name, limit=5):
+    """Парсит последние посты из публичного Telegram-канала"""
     articles = []
+    url = f"https://t.me/s/{channel_name}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    
     try:
-        response = requests.get(converter_url, timeout=15)
+        response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
-            news_data = response.json()
-            if isinstance(news_data, list):
-                for item in news_data[:25]:
-                    title = item.get('title', '')
-                    if title and is_ai_news(title):
-                        articles.append({
-                            'title': title,
-                            'link': item.get('link', '#'),
-                        })
+            soup = BeautifulSoup(response.text, 'html.parser')
+            messages = soup.find_all('div', class_='tgme_widget_message')
+            
+            for msg in messages[:limit]:
+                # Ищем текст сообщения
+                text_elem = msg.find('div', class_='tgme_widget_message_text')
+                if not text_elem:
+                    continue
+                    
+                text = text_elem.get_text(strip=True)
+                if len(text) < 30:  # пропускаем слишком короткие
+                    continue
+                
+                # Проверяем, релевантно ли ИИ
+                if is_ai_news(text):
+                    # Получаем ссылку на пост
+                    link_elem = msg.get('data-post', '')
+                    if link_elem:
+                        post_link = f"https://t.me/{link_elem}"
+                    else:
+                        post_link = f"https://t.me/{channel_name}"
+                    
+                    articles.append({
+                        'title': text[:120] + ('...' if len(text) > 120 else ''),
+                        'link': post_link,
+                        'source': f"Telegram: @{channel_name}"
+                    })
     except Exception as e:
-        print(f"Ошибка Habr: {e}")
+        print(f"Ошибка Telegram-канала {channel_name}: {e}")
+    
     return articles
 
-def get_news():
+def get_all_news():
+    """Собирает новости из всех источников"""
     all_news = []
-    all_news.extend(get_news_from_vc())
-    all_news.extend(get_news_from_habr())
+    seen_titles = set()
     
-    seen = set()
-    unique_news = []
-    for art in all_news:
-        if art['title'] not in seen:
-            seen.add(art['title'])
-            unique_news.append(art)
+    # 1. RSS-источники
+    print("📡 Сбор новостей из RSS...")
+    for source in RSS_SOURCES:
+        news = get_news_from_rss(source)
+        for item in news:
+            if item['title'] not in seen_titles:
+                seen_titles.add(item['title'])
+                all_news.append(item)
+        print(f"  RSS: найдено {len(news)}")
     
-    return unique_news
+    # 2. Telegram-каналы
+    print("📡 Сбор новостей из Telegram...")
+    for channel in TELEGRAM_CHANNELS:
+        news = get_news_from_telegram(channel, limit=5)
+        for item in news:
+            if item['title'] not in seen_titles:
+                seen_titles.add(item['title'])
+                all_news.append(item)
+        print(f"  @{channel}: найдено {len(news)}")
+    
+    return all_news
 
 def send_to_telegram(articles):
+    """Отправляет новости в Telegram канал"""
+    if not articles:
+        message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
+    else:
+        # Сортируем: сначала RSS, потом Telegram (по дате не сортируем, т.к. данных нет)
+        message = "🧠 **Свежие новости об ИИ**\n\n"
+        for art in articles[:12]:
+            source_mark = f" [{art['source']}]" if art.get('source') else ""
+            message += f"• {art['title']}{source_mark}\n{art['link']}\n\n"
+        message += "📱 Подпишись: @tAiT_news"
+    
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHANNEL_ID,
+        "text": message,
+        "disable_web_page_preview": True
+    }
+    
     try:
-        if not articles:
-            message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
-        else:
-            message = "🧠 Свежие новости об ИИ\n\n"
-            for art in articles[:10]:
-                message += f"• {art['title']}\n{art['link']}\n\n"
-            message += "📱 Подпишись: @tAiT_news"
-        
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": CHANNEL_ID,
-            "text": message,
-            "disable_web_page_preview": True
-        }
         result = requests.post(url, json=payload, timeout=15).json()
-        
         if result.get('ok'):
-            print("✅ Сообщение отправлено")
+            print("✅ Сообщение отправлено в Telegram")
         else:
-            print(f"❌ Ошибка: {result}")
+            print(f"❌ Ошибка Telegram: {result}")
         return result.get('ok', False)
-        
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         return False
 
 def main():
-    print("🚀 Запуск бота...")
+    print("🚀 Запуск бота для сбора новостей об ИИ (RSS + Telegram)...")
+    print(f"📡 Канал: {CHANNEL_ID}")
     
     if not BOT_TOKEN or not CHANNEL_ID:
-        print("❌ Ошибка: нет секретов")
+        print("❌ Ошибка: отсутствуют секреты")
         sys.exit(1)
     
-    articles = get_news()
-    success = send_to_telegram(articles)
+    articles = get_all_news()
+    print(f"📊 Всего найдено уникальных новостей: {len(articles)}")
     
+    success = send_to_telegram(articles)
     sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
