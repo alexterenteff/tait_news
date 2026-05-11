@@ -19,17 +19,19 @@ TELEGRAM_CHANNELS = [
 ]
 
 def improve_title_with_deepseek(original_title, retry=0):
-    """Переписывает заголовок через DeepSeek R1 (OpenRouter)"""
+    """Переписывает заголовок через Google Gemini 2.0 Flash (OpenRouter)"""
     if not OPENROUTER_API_KEY:
         return original_title
     
-    print(f"  🔄 DeepSeek запрос для: {original_title[:50]}...")
+    print(f"  🔄 Gemini запрос для: {original_title[:50]}...")
     
     try:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://t.me/tAiT_news",
+            "X-Title": "tAiT News Bot"
         }
         
         prompt = f"""Перепиши этот заголовок новости об ИИ, сделай его:
@@ -43,7 +45,7 @@ def improve_title_with_deepseek(original_title, retry=0):
 Только заголовок, ничего лишнего."""
         
         payload = {
-            "model": "deepseek/deepseek-r1:free",  # ← ИСПРАВЛЕНАЯ МОДЕЛЬ
+            "model": "google/gemini-2.0-flash-exp:free",  # ← РАБОЧАЯ МОДЕЛЬ
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 100,
             "temperature": 0.7
@@ -55,7 +57,7 @@ def improve_title_with_deepseek(original_title, retry=0):
             result = response.json()
             improved = result['choices'][0]['message']['content'].strip()
             improved = improved.strip('"').strip("'")
-            print(f"  ✅ DeepSeek ответ: {improved[:50]}...")
+            print(f"  ✅ Gemini ответ: {improved[:50]}...")
             if len(improved) > 5 and len(improved) <= 100:
                 return improved
             else:
@@ -65,7 +67,7 @@ def improve_title_with_deepseek(original_title, retry=0):
             print(f"  ❌ Ошибка 401: неверный API-ключ OpenRouter")
             return original_title
         elif response.status_code == 429:
-            print(f"  ⚠️ Лимит запросов DeepSeek, пробуем без улучшения")
+            print(f"  ⚠️ Лимит запросов, пробуем без улучшения")
             return original_title
         else:
             print(f"  ❌ Ошибка API: {response.status_code}")
@@ -76,7 +78,7 @@ def improve_title_with_deepseek(original_title, retry=0):
             return original_title
             
     except requests.exceptions.Timeout:
-        print(f"  ❌ Таймаут запроса к DeepSeek")
+        print(f"  ❌ Таймаут запроса")
         if retry < 2:
             print(f"  🔄 Повторная попытка {retry+1}/2 через 5 секунд...")
             time.sleep(5)
@@ -160,10 +162,10 @@ def get_news_from_telegram(channel_name, limit=8):
                 if is_ai_news(text):
                     post_link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
                     
-                    # Улучшаем заголовок через DeepSeek
+                    # Улучшаем заголовок через Gemini
                     improved_title = improve_title_with_deepseek(text[:200])
                     
-                    # Если DeepSeek не сработал, оставляем оригинал
+                    # Если не сработало, оставляем оригинал
                     if not improved_title or len(improved_title) < 5:
                         improved_title = text[:120]
                     
@@ -228,7 +230,7 @@ def send_to_telegram(articles):
         return False
 
 def main():
-    print("🚀 Запуск бота с DeepSeek R1 (OpenRouter)...")
+    print("🚀 Запуск бота с Google Gemini 2.0 Flash (OpenRouter)...")
     print(f"📡 Канал: {CHANNEL_ID}")
     
     # === ДИАГНОСТИКА ===
