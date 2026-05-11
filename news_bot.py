@@ -2,9 +2,11 @@ import requests
 import os
 import sys
 import re
+import time
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 # === НАСТРОЙКИ ===
 TELEGRAM_CHANNELS = [
@@ -16,37 +18,56 @@ TELEGRAM_CHANNELS = [
     "deeplearning_ru"
 ]
 
-def improve_title_simple(title):
-    """Простое улучшение заголовка без API (эмодзи + чистка)"""
-    # Убираем мусор в конце
-    title = re.sub(r'\s*[-–]\s*([A-Z][a-z]+(\s+[A-Z][a-z]+)*)$', '', title)
-    title = re.sub(r'\s*\([^)]+\)$', '', title)
-    title = re.sub(r'\s*—\s*$', '', title)
-    title = re.sub(r'\s+$', '', title)
+def improve_title_with_deepseek(original_title, retry=0):
+    """Переписывает заголовок через DeepSeek (бесплатно, OpenRouter)"""
+    if not OPENROUTER_API_KEY:
+        return original_title
     
-    # Добавляем эмодзи по ключевым словам
-    emoji_map = [
-        ('chatgpt', '🤖'), ('openai', '🤖'), ('gpt', '🤖'),
-        ('claude', '🎨'), ('anthropic', '🎨'),
-        ('gemini', '🔵'), ('google', '🔵'),
-        ('deepseek', '🐋'), ('midjourney', '🎨'), ('dalle', '🎨'),
-        ('kandinsky', '🎨'), ('yandex', '🟡'), ('sber', '🟢'),
-        ('нейросеть', '🧠'), ('ии', '💡'), ('ai', '💡')
-    ]
-    
-    title_lower = title.lower()
-    for kw, emoji in emoji_map:
-        if kw in title_lower:
-            title = f"{emoji} {title}"
-            break
-    else:
-        title = f"📰 {title}"
-    
-    # Сокращаем длинные заголовки
-    if len(title) > 100:
-        title = title[:97] + "..."
-    
-    return title
+    try:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        prompt = f"""Перепиши этот заголовок новости об ИИ, сделай его:
+- короче (максимум 80 символов)
+- с одним эмодзи в начале
+- без потери смысла
+- без кавычек в ответе
+
+Оригинал: {original_title}
+
+Только заголовок, ничего лишнего."""
+        
+        payload = {
+            "model": "deepseek/deepseek-chat:free",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 100,
+            "temperature": 0.7
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            improved = result['choices'][0]['message']['content'].strip()
+            improved = improved.strip('"').strip("'")
+            if len(improved) > 5 and len(improved) <= 100:
+                print(f"  ✨ DeepSeek: '{original_title[:40]}...' → '{improved[:40]}...'")
+                return improved
+            else:
+                return original_title
+        else:
+            print(f"  ⚠️ DeepSeek ошибка {response.status_code}, пробуем снова...")
+            if retry < 1:
+                time.sleep(2)
+                return improve_title_with_deepseek(original_title, retry+1)
+            return original_title
+            
+    except Exception as e:
+        print(f"  ⚠️ DeepSeek исключение: {e}")
+        return original_title
 
 def is_ai_news(text):
     """Проверяет, относится ли текст к ИИ"""
@@ -79,78 +100,131 @@ def is_ai_news(text):
     return False
 
 def escape_html(text):
-    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-    text = text.replace('"', '&quot;').replace("'", '&#39;')
-    text = text.replace('{', '&#123;').replace('}', '&#125;')
+    """Экранирует HTML-спецсимволы"""
+    if not text:
+        return text
+    text = text.replace('&', '&amp;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    text = text.replace('"', '&quot;')
+    text = text.replace("'", '&#39;')
+    text = text.replace('{', '&#123;')
+    text = text.replace('}', '&#125;')
     return text
 
 def get_news_from_telegram(channel_name, limit=8):
+    """Парсит Telegram-канал через веб-версию"""
     articles = []
     url = f"https://t.me/s/{channel_name}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
             html = response.text
-            post_ids = re.findall(r'data-post="([^"]+)"', html)
-            texts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html, re.DOTALL)
             
-            cleaned = []
+            post_pattern = r'data-post="([^"]+)"'
+            text_pattern = r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>'
+            
+            post_ids = re.findall(post_pattern, html)
+            texts = re.findall(text_pattern, html, re.DOTALL)
+            
+            cleaned_texts = []
             for t in texts[:limit]:
                 clean = re.sub(r'<[^>]+>', '', t)
                 clean = clean.replace('&quot;', '"').replace('&amp;', '&')
                 clean = clean.strip()
                 if clean and len(clean) > 30:
-                    cleaned.append(clean)
+                    cleaned_texts.append(clean)
             
-            for i, text in enumerate(cleaned[:limit]):
+            for i, text in enumerate(cleaned_texts[:limit]):
                 if is_ai_news(text):
-                    link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
+                    post_link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
+                    
+                    # Улучшаем заголовок через DeepSeek
+                    improved_title = improve_title_with_deepseek(text[:200])
+                    
                     articles.append({
-                        'title': improve_title_simple(text[:150]),
-                        'link': link,
-                        'source': f"@{channel_name}"
+                        'title': improved_title[:120] + ('...' if len(improved_title) > 120 else ''),
+                        'link': post_link
                     })
-            print(f"  @{channel_name}: релевантных {len(articles)}")
+            
+            print(f"  @{channel_name}: найдено {len(articles)} новостей")
+                    
     except Exception as e:
         print(f"Ошибка {channel_name}: {e}")
+    
     return articles
 
 def get_all_news():
     all_news = []
-    seen = set()
-    for ch in TELEGRAM_CHANNELS:
-        for item in get_news_from_telegram(ch, 8):
-            if item['title'] not in seen:
-                seen.add(item['title'])
+    seen_titles = set()
+    
+    print("📡 Сбор новостей из Telegram-каналов...")
+    for channel in TELEGRAM_CHANNELS:
+        news = get_news_from_telegram(channel, limit=8)
+        for item in news:
+            if item['title'] not in seen_titles:
+                seen_titles.add(item['title'])
                 all_news.append(item)
+        print(f"  @{channel}: добавлено {len(news)} новостей")
+    
     return all_news
 
 def send_to_telegram(articles):
-    articles = articles[:10]
-    if not articles:
-        msg = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
-    else:
-        msg = "🧠 <b>Свежие новости об ИИ</b>\n\n"
-        for a in articles:
-            msg += f"• <a href=\"{a['link']}\">{escape_html(a['title'])}</a> <code>[{a['source']}]</code>\n\n"
-        msg += "📱 <a href=\"https://t.me/tAiT_news\">Подпишись: @tAiT_news</a>"
+    """Отправляет новости в Telegram канал (без источника, без предпросмотра)"""
+    articles_to_send = articles[:10]
     
-    r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-        "chat_id": CHANNEL_ID, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True
-    }, timeout=15)
-    return r.json().get('ok', False)
+    if not articles_to_send:
+        message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
+    else:
+        message = "🧠 <b>Свежие новости об ИИ</b>\n\n"
+        for art in articles_to_send:
+            safe_title = escape_html(art['title'])
+            message += f"• <a href=\"{art['link']}\">{safe_title}</a>\n\n"
+        message += "📱 <a href=\"https://t.me/tAiT_news\">Подпишись: @tAiT_news</a>"
+    
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHANNEL_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+    
+    try:
+        result = requests.post(url, json=payload, timeout=15).json()
+        if result.get('ok'):
+            print("✅ Сообщение отправлено в Telegram")
+        else:
+            print(f"❌ Ошибка Telegram: {result}")
+        return result.get('ok', False)
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+        return False
 
 def main():
-    print("🚀 Запуск бота (улучшение заголовков без API)...")
+    print("🚀 Запуск бота с DeepSeek (OpenRouter)...")
+    print(f"📡 Канал: {CHANNEL_ID}")
+    
+    if OPENROUTER_API_KEY:
+        print("🟢 OpenRouter API ключ найден — заголовки будут улучшаться")
+    else:
+        print("🟡 OpenRouter API ключ не найден — заголовки без изменений")
+        print("   Добавь секрет OPENROUTER_API_KEY в GitHub Secrets")
+    
     if not BOT_TOKEN or not CHANNEL_ID:
-        print("❌ Ошибка: нет секретов")
+        print("❌ Ошибка: отсутствуют секреты")
         sys.exit(1)
+    
     articles = get_all_news()
-    print(f"📊 Найдено {len(articles)} новостей, отправляем {min(len(articles), 10)}")
-    ok = send_to_telegram(articles)
-    sys.exit(0 if ok else 1)
+    print(f"📊 Всего найдено уникальных новостей: {len(articles)}")
+    print(f"📤 Будет отправлено: {min(len(articles), 10)}")
+    
+    success = send_to_telegram(articles)
+    sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()
