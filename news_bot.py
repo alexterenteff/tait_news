@@ -46,10 +46,12 @@ def is_ai_news(text):
             return True
     return False
 
-def escape_markdown(text):
-    """Экранирует спецсимволы для MarkdownV2"""
-    special_chars = r'([_*\[\]()~`>#+\-=|{}.!\\])'
-    return re.sub(special_chars, r'\\\1', text)
+def escape_html(text):
+    """Экранирует только HTML-спецсимволы (<, >, &)"""
+    text = text.replace('&', '&amp;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    return text
 
 def get_news_from_telegram(channel_name, limit=8):
     """Парсит Telegram-канал через веб-версию"""
@@ -111,25 +113,22 @@ def get_all_news():
     return all_news
 
 def send_to_telegram(articles):
-    """Отправляет новости в Telegram канал с кликабельными заголовками"""
+    """Отправляет новости в Telegram канал с HTML-ссылками"""
     if not articles:
         message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
     else:
-        message = "🧠 **Свежие новости об ИИ**\n\n"
+        message = "🧠 <b>Свежие новости об ИИ</b>\n\n"
         for art in articles[:15]:
-            # Экранируем заголовок для MarkdownV2
-            safe_title = escape_markdown(art['title'])
-            # Ссылка экранируется автоматически, но скобки в ней нужно экранировать
-            safe_link = art['link'].replace(')', '\\)').replace('(', '\\(')
-            # Формируем кликабельный заголовок: [текст](ссылка)
-            message += f"• [{safe_title}]({safe_link})\n\n"
-        message += "📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
+            safe_title = escape_html(art['title'])
+            # Формируем HTML-ссылку: <a href="ссылка">текст</a>
+            message += f"• <a href=\"{art['link']}\">{safe_title}</a>\n\n"
+        message += "📱 <a href=\"https://t.me/tAiT_news\">Подпишись: @tAiT_news</a>"
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHANNEL_ID,
         "text": message,
-        "parse_mode": "MarkdownV2",
+        "parse_mode": "HTML",
         "disable_web_page_preview": False
     }
     
