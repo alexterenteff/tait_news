@@ -1,116 +1,111 @@
 import requests
 import os
+import sys
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
 def is_ai_news(title):
-    """Проверяет, похож ли заголовок на новость про ИИ"""
     keywords = [
-        # Русские ключевые слова
+        'openai', 'chatgpt', 'gpt-4', 'deepseek', 'gemini', 'google ai',
+        'anthropic', 'claude', 'meta ai', 'llama', 'microsoft ai', 'copilot',
+        'nvidia', 'midjourney', 'stable diffusion', 'runway', 'pika',
+        'yandex gpt', 'gigachat', 'kandinsky', 'sber ai',
+        'baidu', 'alibaba', 'qwen', 'kling ai', 'moonshot',
         'ии', 'ai', 'искусственный интеллект', 'нейросеть', 'нейронная сеть',
-        'машинное обучение', 'ml', 'большая языковая модель', 'llm', 'чат-бот',
-        'компьютерное зрение', 'распознавание лиц', 'генеративный ии',
-        
-        # Названия AI-компаний (международные)
-        'openai', 'chatgpt', 'gpt-4', 'gpt-5', 'sora', 'dalle', 'dall-e',
-        'deepseek', 'googledeepmind', 'gemini', 'google ai',
-        'anthropic', 'claude', 'meta ai', 'llama', 'meta llama',
-        'microsoft ai', 'copilot', 'bing ai', 'bings',
-        'amazon ai', 'aws ai', 'bedrock ai',
-        'nvidia', 'nvidia ai', 'cuda', 'dgx',
-        'xai', 'grok', 'elon mask ia',
-        'midjourney', 'stable diffusion', 'stability ai',
-        'hugging face', 'perplexity ai', 'character ai',
-        'cohere', 'mistral ai', 'adept', 'runway ml',
-        
-        # Китайские AI-компании
-        'baidu ernie', 'ernie bot', 'alibaba tongyi', 'qwen',
-        'tencent hunyuan', 'kuaishou kling', 'kling ai',
-        'moonshot ai', 'stepfun', 'zhipu ai', 'chatglm',
-        'minimax', 'sensetime', 'megvii',
-        'algorithm of thoughts', '01 ai', 'spark desk',
-        
-        # Российские AI-компании и проекты
-        'yandex gpt', 'yandexart', 'yandex gpt', 'yandex ai',
-        'sber ai', 'giga chat', 'gigachat', 'candinsky', 'kandinsky',
-        'salute ai', 'sber gpt', 'sberdevice', 'smartmark',
-        'vk ai', 'vkontakte ai', 'mail ru ai', 'mts ai',
-        
-        # Зарубежные AI-продукты
-        'd-id', 'synthesia', 'hey gen', 'heyげん', 'pika labs', 'runway gen',
-        'capcut ai', 'bytedance ai', 'tiktok ai',
-        'replika', 'pi ai', 'inflection ai', 'glean',
-        'cognition ai', 'devin ai', 'replit ai', 'cursor ai',
-        'github copilot', 'codeium', 'tabnine', 'amazon q',
-        
-        # AI-железо и чипы
-        'nvidia h100', 'nvidia b200', 'blackwell', 'amd instinct',
-        'intel gaudi', 'apple m4 neural', 'qualcomm ai',
-        
-        # Технологии и исследования
-        'transformer', 'diffusion', 'latent diffusion', 'vae',
-        'rag', 'agent', 'multi modal', 'multimodal m',
-        'agi', 'asi', 'superintelligence', 'alignment',
-        'fine tuning', 'rlhf', 'constitutional ai', 'mechanistic' 'interpretability'
+        'машинное обучение', 'llm', 'чат-бот'
     ]
-    
     title_lower = title.lower()
-    for kw in keywords:
-        if kw in title_lower:
-            return True
-    return False
+    return any(kw in title_lower for kw in keywords)
 
 def get_news():
-    """Получает новости через конвертер Aimylogic"""
     converter_url = "https://tools.aimylogic.com/api/rss2json?url=https://vc.ru/rss/all"
     try:
-        response = requests.get(converter_url, timeout=10)
-        if response.status_code == 200:
-            news_data = response.json()
-            if isinstance(news_data, list):
-                articles = []
-                for item in news_data[:20]:  # проверяем 20 последних новостей
-                    title = item.get('title', '')
-                    if is_ai_news(title):
-                        articles.append({
-                            'title': title,
-                            'link': item.get('link', '#')
-                        })
-                        print(f"✅ Найдено: {title[:60]}...")
-                return articles
+        response = requests.get(converter_url, timeout=15)
+        print(f"Статус ответа: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"❌ Конвертер вернул {response.status_code}")
+            return None
+            
+        news_data = response.json()
+        print(f"Тип данных: {type(news_data)}")
+        
+        if not isinstance(news_data, list):
+            print(f"❌ Данные не список: {news_data[:200]}")
+            return None
+            
+        articles = []
+        for item in news_data[:25]:
+            title = item.get('title', '')
+            if title and is_ai_news(title):
+                articles.append({
+                    'title': title,
+                    'link': item.get('link', '#')
+                })
+                print(f"✅ Найдено: {title[:50]}...")
+        
+        print(f"📰 Найдено релевантных новостей: {len(articles)}")
+        return articles
+        
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
-    return []
+        print(f"❌ Ошибка в get_news: {e}")
+        return None
 
 def send_to_telegram(articles):
-    if not articles:
-        message = "🤖 За последнее время нет новостей об ИИ.\n\n📱 Подпишись: @tAiT_news"
-    else:
-        message = "🧠 **Свежие новости об ИИ**\n\n"
-        for art in articles[:7]:  # отправляем не больше 7 новостей
-            message += f"🔹 [{art['title']}]({art['link']})\n\n"
-        message += "📱 Подпишись: @tAiT_news"
-    
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHANNEL_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    }
-    return requests.post(url, json=payload).json()
+    try:
+        if articles is None:
+            message = "❌ Ошибка: не удалось получить данные от RSS-конвертера"
+        elif not articles:
+            message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
+        else:
+            message = "🧠 **Свежие новости об ИИ**\n\n"
+            for art in articles[:7]:
+                message += f"🔹 [{art['title']}]({art['link']})\n\n"
+            message += "📱 Подпишись: @tAiT_news"
+        
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHANNEL_ID,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        result = requests.post(url, json=payload, timeout=15).json()
+        print(f"Telegram ответ: {result}")
+        
+        if not result.get('ok'):
+            print(f"❌ Ошибка Telegram: {result}")
+            return False
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка в send_to_telegram: {e}")
+        return False
 
 def main():
-    print("🚀 Запуск бота для поиска новостей об ИИ...")
-    print(f"📡 Канал: {CHANNEL_ID}")
+    print("🚀 Запуск бота...")
+    print(f"BOT_TOKEN: {'OK' if BOT_TOKEN else '❌ НЕТ'}")
+    print(f"CHANNEL_ID: {CHANNEL_ID if CHANNEL_ID else '❌ НЕТ'}")
+    
+    if not BOT_TOKEN or not CHANNEL_ID:
+        print("❌ Ошибка: отсутствуют секреты!")
+        sys.exit(1)
+    
     articles = get_news()
-    print(f"📰 Найдено новостей: {len(articles)}")
-    result = send_to_telegram(articles)
-    if result.get('ok'):
-        print("✅ Отправлено успешно!")
-    else:
-        print(f"❌ Ошибка: {result}")
+    
+    if articles is None:
+        print("❌ Критическая ошибка: get_news вернул None")
+        sys.exit(1)
+    
+    success = send_to_telegram(articles)
+    
+    if not success:
+        print("❌ Ошибка при отправке в Telegram")
+        sys.exit(1)
+    
+    print("✅ Бот успешно отработал")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
