@@ -1,16 +1,9 @@
 import requests
 import os
-import re
 import sys
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
-
-def clean_markdown(text):
-    """Очищает текст от символов, ломающих Markdown в Telegram"""
-    # Экранируем спецсимволы, которые могут сломать ссылку
-    special_chars = r'([\_\*\[\]\(\)\~`>#\+\-\=\|\{\}\.\!])'
-    return re.sub(special_chars, r'\\\1', text)
 
 def is_ai_news(title):
     keywords = [
@@ -65,19 +58,18 @@ def send_to_telegram(articles):
         elif not articles:
             message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
         else:
-            message = "🧠 **Свежие новости об ИИ**\n\n"
+            message = "🧠 Свежие новости об ИИ\n\n"
             for art in articles[:7]:
-                # Очищаем заголовок от спецсимволов
-                clean_title = clean_markdown(art['title'])
-                message += f"🔹 [{clean_title}]({art['link']})\n\n"
+                # Без Markdown — просто текст и ссылка
+                message += f"• {art['title']}\n{art['link']}\n\n"
             message += "📱 Подпишись: @tAiT_news"
         
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": CHANNEL_ID,
             "text": message,
-            "parse_mode": "MarkdownV2",  # ← меняем на MarkdownV2
             "disable_web_page_preview": True
+            # parse_mode НЕ указываем — обычный текст
         }
         result = requests.post(url, json=payload, timeout=15).json()
         print(f"Telegram ответ: {result}")
