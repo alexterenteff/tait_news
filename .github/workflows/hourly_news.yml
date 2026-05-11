@@ -2,7 +2,7 @@ name: Hourly AI News Bot
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */4 * * *'   # каждые 4 часа (можно менять)
   workflow_dispatch:
 
 jobs:
