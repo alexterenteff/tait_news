@@ -11,6 +11,9 @@ RSS_SOURCES = [
     "https://www.cnews.ru/rubric/ai/export_rss_news/",
     "https://robohunter.ru/feed.xml",
     "https://www.ixbt.com/export/news/ai.rss",
+    "https://vc.ru/rss/all",                    
+    "https://tproger.ru/feed/",                 
+    "https://json.tv/rss",
 ]
 
 # === ИНИЦИАЛИЗАЦИЯ ===
