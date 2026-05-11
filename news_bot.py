@@ -17,7 +17,7 @@ def is_ai_related(title, summary):
         'ии', 'ai', 'искусственный интеллект', 'нейросеть', 'нейронная сеть',
         'машинное обучение', 'ml', 'deep learning', 'чат-бот', 'llm', 'gpt',
         'deepseek', 'аналитика данных', 'компьютерное зрение', 'робот',
-        'автопилот', 'беспилотник', 'большие данные', 'big data', 'распознавание'
+        'автопилот', 'беспилотник', 'большие данные', 'big data', 'распознавание', 'Claude'
     ]
     
     # Ищем любое из ключевых слов как отдельное слово
@@ -67,7 +67,7 @@ def send_to_telegram(articles):
         for art in articles[:7]:  # Отправляем не больше 7 новостей за раз
             message += f"🔹 [{art['title']}]({art['link']})\n\n"
         
-        message += "📱 Подпишись: @tAiT"
+        message += "📱 Подпишись: @tAiT_news"
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
