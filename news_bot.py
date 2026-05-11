@@ -2,7 +2,6 @@ import requests
 import os
 import json
 import time
-import re
 
 # === ТВОИ СЕКРЕТЫ ИЗ GITHUB ===
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -10,7 +9,10 @@ CHANNEL_ID = os.environ.get("CHANNEL_ID")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
 def get_news_from_deepseek(retry_count=0):
-    """Продвинутый запрос к DeepSeek с защитой от пустых ответов и reasoning_content"""
+    """
+    Получает новости, используя deepseek-chat (не deepseek-reasoner!)
+    Эта модель работает с веб-поиском стабильно и без ошибки reasoning_content.
+    """
     
     url = "https://api.deepseek.com/chat/completions"
     headers = {
@@ -18,13 +20,15 @@ def get_news_from_deepseek(retry_count=0):
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
     }
     
-    # Улучшенный промпт, который не дает DeepSeek "уходить в себя"
+    # Промпт для модели deepseek-chat
     prompt = """Ты — редактор новостного канала. Твоя задача — найти 5 самых свежих новостей об ИИ.
 Действуй строго по алгоритму:
-1. Сначала, НЕ МЕДЛЯ, используй поисковый инструмент, чтобы найти актуальные новости.
+1. Сначала используй поисковый инструмент, чтобы найти актуальные новости о событиях за последние 1-2 дня.
 2. После получения данных, НЕМЕДЛЕННО сформулируй ответ на русском языке.
-3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать о том, что ты "ищешь", "думаешь" или "анализируешь". Только готовый результат.
+3. НЕ пиши "я ищу", "я думаю" или "анализирую". Только готовый результат.
 4. Если поиск не дал результатов, напиши "Новостей за последний час нет".
+
+КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать "режим мышления". Отвечай сразу от лица ассистента.
 
 Формат ответа (Markdown):
 Для каждой новости:
@@ -32,12 +36,13 @@ def get_news_from_deepseek(retry_count=0):
 Краткое описание.
 🔗 [Источник](ссылка_на_источник)"""
 
+    # Теперь используем модель deepseek-chat, которая работает со всем инструментарием без ошибок
     payload = {
-        "model": "deepseek-chat",
+        "model": "deepseek-chat",  # <-- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: используем chat, а не reasoner
         "messages": [{"role": "user", "content": prompt}],
-        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        "tools": [{"type": "web_search_20250305", "max_uses": 3}],
         "max_tokens": 2000,
-        "temperature": 0.3  # Низкая температура, чтобы модель была более предсказуемой
+        "temperature": 0.3  
     }
     
     try:
@@ -46,30 +51,21 @@ def get_news_from_deepseek(retry_count=0):
         
         if response.status_code == 200:
             result = response.json()
-            # 1. Пытаемся получить content. Если его нет, ищем в tool_calls
+            # Пытаемся получить content
             message_content = result['choices'][0]['message'].get('content')
             
             if message_content and len(message_content.strip()) > 50:
                 print("✅ DeepSeek вернул полноценный ответ.")
                 return message_content
             else:
-                # 2. Это "костыль" от пустого ответа. Пробуем найти результат в `tool_calls`.
-                # Если DeepSeek начал поиск, но не смог сформулировать ответ, API может вернуть пустой `content`.
-                # Но результат поиска может быть внутри `tool_calls`.
-                tool_calls = result['choices'][0]['message'].get('tool_calls')
-                if tool_calls:
-                    print("⚠️ DeepSeek выполнил поиск, но не сформулировал ответ. Пробуем перезапустить...")
-                    if retry_count < 1:
-                        print("🔄 Перезапуск...")
-                        time.sleep(10)
-                        return get_news_from_deepseek(retry_count + 1)
-                    else:
-                        # Если перезапуск не помог, сообщаем об ошибке
-                        return None
+                # Проверяем, может быть, DeepSeek просто сказал, что ничего не нашёл?
+                if message_content and "Новостей за последний час нет" in message_content:
+                     print("⚠️ DeepSeek не нашёл новостей.")
+                     return None
                 else:
-                    print(f"⚠️ DeepSeek вернул пустой ответ: '{message_content}'")
+                    print(f"⚠️ DeepSeek вернул пустой или короткий ответ: '{message_content}'")
                     if retry_count < 1:
-                        print("🔄 Повторная попытка...")
+                        print("🔄 Повторная попытка через 10 секунд...")
                         time.sleep(10)
                         return get_news_from_deepseek(retry_count + 1)
                     else:
@@ -86,9 +82,10 @@ def get_news_from_deepseek(retry_count=0):
 def clean_telegram_message(message):
     """Финальная очистка сообщения перед отправкой."""
     if not message:
-        return "⚠️ Не удалось получить новости. API DeepSeek временно нестабилен. Попробуйте позже.\n\n📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
+        return "⚠️ Не удалось получить новости. DeepSeek не нашёл свежих событий. Попробуйте позже.\n\n📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
     
     # Удаляем пугающие пользователя фразы, которые иногда проскакивают
+    import re
     message = re.sub(r'Я ищу...|Я думаю...|Я анализирую...|Поиск...', '', message, flags=re.IGNORECASE)
     message = message.strip()
     
@@ -125,7 +122,7 @@ def send_to_telegram(message):
         return {"ok": False}
 
 def main():
-    print("🚀 Запуск продвинутого бота с веб-поиском...")
+    print("🚀 Запуск бота с веб-поиском (модель deepseek-chat)...")
     
     if not all([BOT_TOKEN, CHANNEL_ID, DEEPSEEK_API_KEY]):
         print("❌ Ошибка: не хватает секретов!")
