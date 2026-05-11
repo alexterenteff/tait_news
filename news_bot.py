@@ -1,8 +1,7 @@
 import requests
 import os
 import sys
-import time
-from bs4 import BeautifulSoup
+import re
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
@@ -14,8 +13,8 @@ RSS_SOURCES = [
 ]
 
 TELEGRAM_CHANNELS = [
-    "durov",      # Павел Дуров — часто про ИИ, технологии
-    "halikov"     # Халиков — популярный AI-канал
+    "durov",
+    "halikov"
 ]
 
 def is_ai_news(text):
@@ -30,17 +29,12 @@ def is_ai_news(text):
             return False
     
     keywords = [
-        'openai', 'chatgpt', 'gpt-4', 'gpt-5', 'sora', 'dalle',
-        'deepseek', 'gemini', 'google ai', 'anthropic', 'claude',
-        'meta ai', 'llama', 'microsoft ai', 'copilot', 'nvidia',
-        'midjourney', 'stable diffusion', 'runway', 'pika labs',
-        'yandex gpt', 'yandexart', 'gigachat', 'kandinsky', 'sber ai',
-        'baidu', 'alibaba', 'qwen', 'kling ai', 'moonshot',
-        'mistral ai', 'hugging face', 'perplexity ai',
+        'openai', 'chatgpt', 'gpt-4', 'sora', 'dalle', 'deepseek', 'gemini',
+        'google ai', 'anthropic', 'claude', 'meta ai', 'llama', 'microsoft ai',
+        'copilot', 'nvidia', 'midjourney', 'stable diffusion', 'kling ai',
+        'yandex gpt', 'gigachat', 'kandinsky', 'sber ai', 'baidu', 'alibaba',
         'ии', 'искусственный интеллект', 'нейросеть', 'нейронная сеть',
-        'машинное обучение', 'ml', 'llm', 'большая языковая модель',
-        'чат-бот', 'генеративный ии', 'компьютерное зрение',
-        'агент', 'агенты', 'rag', 'retrieval', 'fine-tuning'
+        'машинное обучение', 'ml', 'llm', 'чат-бот', 'генеративный ии'
     ]
     
     for kw in keywords:
@@ -70,7 +64,7 @@ def get_news_from_rss(converter_url):
     return articles
 
 def get_news_from_telegram(channel_name, limit=5):
-    """Парсит последние посты из публичного Telegram-канала"""
+    """Парсит Telegram-канал через веб-версию (без BeautifulSoup)"""
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {
@@ -80,33 +74,38 @@ def get_news_from_telegram(channel_name, limit=5):
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            messages = soup.find_all('div', class_='tgme_widget_message')
+            html = response.text
             
-            for msg in messages[:limit]:
-                # Ищем текст сообщения
-                text_elem = msg.find('div', class_='tgme_widget_message_text')
-                if not text_elem:
-                    continue
-                    
-                text = text_elem.get_text(strip=True)
-                if len(text) < 30:  # пропускаем слишком короткие
-                    continue
-                
-                # Проверяем, релевантно ли ИИ
+            # Ищем все блоки сообщений по паттерну
+            # В веб-версии каждое сообщение имеет data-post="канал/id"
+            post_pattern = r'data-post="([^"]+)"'
+            text_pattern = r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>'
+            
+            # Находим все ID постов
+            post_ids = re.findall(post_pattern, html)
+            # Находим все тексты
+            texts = re.findall(text_pattern, html, re.DOTALL)
+            
+            # Очищаем тексты от HTML-тегов
+            cleaned_texts = []
+            for t in texts[:limit]:
+                # Убираем HTML-теги
+                clean = re.sub(r'<[^>]+>', '', t)
+                clean = clean.replace('&quot;', '"').replace('&amp;', '&')
+                clean = clean.strip()
+                if clean and len(clean) > 30:
+                    cleaned_texts.append(clean)
+            
+            # Собираем посты
+            for i, text in enumerate(cleaned_texts[:limit]):
                 if is_ai_news(text):
-                    # Получаем ссылку на пост
-                    link_elem = msg.get('data-post', '')
-                    if link_elem:
-                        post_link = f"https://t.me/{link_elem}"
-                    else:
-                        post_link = f"https://t.me/{channel_name}"
-                    
+                    post_link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
                     articles.append({
                         'title': text[:120] + ('...' if len(text) > 120 else ''),
                         'link': post_link,
                         'source': f"Telegram: @{channel_name}"
                     })
+                    
     except Exception as e:
         print(f"Ошибка Telegram-канала {channel_name}: {e}")
     
@@ -117,7 +116,6 @@ def get_all_news():
     all_news = []
     seen_titles = set()
     
-    # 1. RSS-источники
     print("📡 Сбор новостей из RSS...")
     for source in RSS_SOURCES:
         news = get_news_from_rss(source)
@@ -127,7 +125,6 @@ def get_all_news():
                 all_news.append(item)
         print(f"  RSS: найдено {len(news)}")
     
-    # 2. Telegram-каналы
     print("📡 Сбор новостей из Telegram...")
     for channel in TELEGRAM_CHANNELS:
         news = get_news_from_telegram(channel, limit=5)
@@ -144,7 +141,6 @@ def send_to_telegram(articles):
     if not articles:
         message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
     else:
-        # Сортируем: сначала RSS, потом Telegram (по дате не сортируем, т.к. данных нет)
         message = "🧠 **Свежие новости об ИИ**\n\n"
         for art in articles[:12]:
             source_mark = f" [{art['source']}]" if art.get('source') else ""
