@@ -7,18 +7,13 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
 # === НАСТРОЙКИ ===
-RSS_SOURCES = [
-    "https://tools.aimylogic.com/api/rss2json?url=https://vc.ru/rss/all",
-    "https://tools.aimylogic.com/api/rss2json?url=https://habr.com/ru/rss/hub/ai/all/?fl=ru"
-]
-
 TELEGRAM_CHANNELS = [
-    "durov",           # Павел Дуров — технологии, ИИ
-    "halikov",         # Халиков — AI-канал
-    "ai_news_ru",      # AI Новости
-    "neural_network",  # Нейросети
-    "gpt_channel",     # GPT и нейросети
-    "deeplearning_ru"  # Deep Learning Russia
+    "durov",
+    "halikov",
+    "ai_news_ru",
+    "neural_network",
+    "gpt_channel",
+    "deeplearning_ru"
 ]
 
 def is_ai_news(text):
@@ -51,29 +46,13 @@ def is_ai_news(text):
             return True
     return False
 
-def get_news_from_rss(converter_url):
-    """Получает новости из RSS через конвертер"""
-    articles = []
-    try:
-        response = requests.get(converter_url, timeout=15)
-        if response.status_code == 200:
-            news_data = response.json()
-            if isinstance(news_data, list):
-                for item in news_data[:15]:
-                    title = item.get('title', '')
-                    link = item.get('link', '#')
-                    if title and is_ai_news(title):
-                        articles.append({
-                            'title': title,
-                            'link': link,
-                            'source': 'RSS'
-                        })
-    except Exception as e:
-        print(f"Ошибка RSS: {e}")
-    return articles
+def escape_markdown(text):
+    """Экранирует спецсимволы для MarkdownV2"""
+    special_chars = r'([_*\[\]()~`>#+\-=|{}.!\\])'
+    return re.sub(special_chars, r'\\\1', text)
 
 def get_news_from_telegram(channel_name, limit=8):
-    """Парсит Telegram-канал через веб-версию (без BeautifulSoup)"""
+    """Парсит Telegram-канал через веб-версию"""
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {
@@ -85,16 +64,12 @@ def get_news_from_telegram(channel_name, limit=8):
         if response.status_code == 200:
             html = response.text
             
-            # Ищем все блоки сообщений по паттерну
             post_pattern = r'data-post="([^"]+)"'
             text_pattern = r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>'
             
-            # Находим все ID постов
             post_ids = re.findall(post_pattern, html)
-            # Находим все тексты
             texts = re.findall(text_pattern, html, re.DOTALL)
             
-            # Очищаем тексты от HTML-тегов
             cleaned_texts = []
             for t in texts[:limit]:
                 clean = re.sub(r'<[^>]+>', '', t)
@@ -103,17 +78,15 @@ def get_news_from_telegram(channel_name, limit=8):
                 if clean and len(clean) > 30:
                     cleaned_texts.append(clean)
             
-            # Собираем посты
             for i, text in enumerate(cleaned_texts[:limit]):
                 if is_ai_news(text):
                     post_link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
                     articles.append({
-                        'title': text[:120] + ('...' if len(text) > 120 else ''),
+                        'title': text[:150] + ('...' if len(text) > 150 else ''),
                         'link': post_link,
-                        'source': f"Telegram: @{channel_name}"
+                        'source': f"@{channel_name}"
                     })
             
-            # Отладочная печать
             print(f"  @{channel_name}: найдено текстов {len(cleaned_texts)}, релевантных {len(articles)}")
                     
     except Exception as e:
@@ -122,20 +95,11 @@ def get_news_from_telegram(channel_name, limit=8):
     return articles
 
 def get_all_news():
-    """Собирает новости из всех источников"""
+    """Собирает новости из всех Telegram-каналов"""
     all_news = []
     seen_titles = set()
     
-    print("📡 Сбор новостей из RSS...")
-    for source in RSS_SOURCES:
-        news = get_news_from_rss(source)
-        for item in news:
-            if item['title'] not in seen_titles:
-                seen_titles.add(item['title'])
-                all_news.append(item)
-        print(f"  RSS: найдено {len(news)}")
-    
-    print("📡 Сбор новостей из Telegram...")
+    print("📡 Сбор новостей из Telegram-каналов...")
     for channel in TELEGRAM_CHANNELS:
         news = get_news_from_telegram(channel, limit=8)
         for item in news:
@@ -147,21 +111,26 @@ def get_all_news():
     return all_news
 
 def send_to_telegram(articles):
-    """Отправляет новости в Telegram канал"""
+    """Отправляет новости в Telegram канал с кликабельными заголовками"""
     if not articles:
         message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
     else:
         message = "🧠 **Свежие новости об ИИ**\n\n"
         for art in articles[:15]:
-            source_mark = f" [{art['source']}]" if art.get('source') else ""
-            message += f"• {art['title']}{source_mark}\n{art['link']}\n\n"
-        message += "📱 Подпишись: @tAiT_news"
+            # Экранируем заголовок для MarkdownV2
+            safe_title = escape_markdown(art['title'])
+            # Ссылка экранируется автоматически, но скобки в ней нужно экранировать
+            safe_link = art['link'].replace(')', '\\)').replace('(', '\\(')
+            # Формируем кликабельный заголовок: [текст](ссылка)
+            message += f"• [{safe_title}]({safe_link})\n\n"
+        message += "📱 [Подпишись: @tAiT_news](https://t.me/tAiT_news)"
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHANNEL_ID,
         "text": message,
-        "disable_web_page_preview": True
+        "parse_mode": "MarkdownV2",
+        "disable_web_page_preview": False
     }
     
     try:
@@ -176,7 +145,7 @@ def send_to_telegram(articles):
         return False
 
 def main():
-    print("🚀 Запуск бота для сбора новостей об ИИ (RSS + Telegram)...")
+    print("🚀 Запуск бота для сбора новостей об ИИ (только Telegram)...")
     print(f"📡 Канал: {CHANNEL_ID}")
     
     if not BOT_TOKEN or not CHANNEL_ID:
