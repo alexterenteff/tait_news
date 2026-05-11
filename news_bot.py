@@ -47,7 +47,7 @@ def is_ai_news(text):
     return False
 
 def escape_html(text):
-    """Экранирует HTML-спецсимволы, но не трогает эмодзи"""
+    """Экранирует HTML-спецсимволы"""
     if not text:
         return text
     text = text.replace('&', '&amp;')
@@ -61,6 +61,7 @@ def escape_html(text):
     return text
 
 def get_news_from_telegram(channel_name, limit=8):
+    """Парсит Telegram-канал через веб-версию"""
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {
@@ -103,6 +104,7 @@ def get_news_from_telegram(channel_name, limit=8):
     return articles
 
 def get_all_news():
+    """Собирает новости из всех Telegram-каналов"""
     all_news = []
     seen_titles = set()
     
@@ -118,7 +120,7 @@ def get_all_news():
     return all_news
 
 def send_to_telegram(articles):
-    """Отправляет новости с HTML-ссылками и подписью источника"""
+    """Отправляет новости в Telegram канал без предпросмотра ссылок"""
     if not articles:
         message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
     else:
@@ -137,7 +139,7 @@ def send_to_telegram(articles):
         "chat_id": CHANNEL_ID,
         "text": message,
         "parse_mode": "HTML",
-        "disable_web_page_preview": False
+        "disable_web_page_preview": True   # ← убирает розовый блок
     }
     
     try:
