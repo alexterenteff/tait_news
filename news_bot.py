@@ -91,7 +91,8 @@ def generate_summary(news_list):
         summary = "Не удалось сгенерировать сводку из-за ошибки API."
     
     header = f"🤖 Новости ИИ на {datetime.now().strftime('%H:%M')}\n\n"
-    return header + summary
+    footer = f"\n\n📱 Подпишись: @tAiT"
+    return header + summary + footer
 
 def publish_to_telegram(message):
     """Отправляет сообщение в Telegram канал"""
