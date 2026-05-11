@@ -60,6 +60,8 @@ def collect_news():
 def generate_summary(news_list):
     """Генерирует сводку с помощью DeepSeek"""
     if not news_list:
+            footer = f"\n\n📱 Подпишись: @tAiT"
+    return header + summary + footer
         return "За последний час нет новых новостей об ИИ."
     
     # Берем только первые 5 новостей, чтобы не перегружать API
