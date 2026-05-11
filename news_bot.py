@@ -7,26 +7,26 @@ import json
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
-YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
+YC_API_KEY = os.environ.get("YC_API_KEY")  # ← API-ключ сервисного аккаунта
 
 # === НАСТРОЙКИ ===
 TELEGRAM_CHANNELS = [
-    "deeplearning_ru"  # пока один канал для теста
+    "deeplearning_ru"
 ]
 
-# Твой folder_id из Yandex Cloud
-YANDEX_FOLDER_ID = "aje2anvve1v62ib7bs7l"  # <- ВСТАВЬ СВОЙ!
+# Твой folder_id из Yandex Cloud (где создан сервисный аккаунт)
+YANDEX_FOLDER_ID = "b1gxxxxxxxxxxxxxxxx"  # ← ВСТАВЬ СВОЙ!
 
-def improve_title_with_yandex_gpt(original_title):
-    """Переписывает заголовок через Yandex GPT"""
-    if not YANDEX_API_KEY:
-        print("  ⚠️ Нет API-ключа Yandex GPT")
+def improve_title_with_yandex_gpt(original_title, retry=0):
+    """Переписывает заголовок через Yandex GPT с авторизацией по API-ключу"""
+    if not YC_API_KEY:
+        print("  ⚠️ Нет API-ключа Yandex Cloud")
         return original_title
     
     try:
         url = "https://llm.api.cloud.yandex.net/llm/v1alpha/chat/completions"
         headers = {
-            "Authorization": f"Api-Key {YANDEX_API_KEY}",
+            "Authorization": f"Api-Key {YC_API_KEY}",
             "Content-Type": "application/json"
         }
         
@@ -38,7 +38,12 @@ def improve_title_with_yandex_gpt(original_title):
 Оригинал: {original_title}"""
         
         payload = {
-            "model": "yandexgpt-lite",
+            "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
+            "completionOptions": {
+                "stream": False,
+                "temperature": 0.7,
+                "maxTokens": 100
+            },
             "messages": [
                 {
                     "role": "system",
@@ -48,12 +53,10 @@ def improve_title_with_yandex_gpt(original_title):
                     "role": "user",
                     "text": prompt
                 }
-            ],
-            "temperature": 0.7,
-            "max_tokens": 100,
-            "folder_id": YANDEX_FOLDER_ID
+            ]
         }
         
+        print(f"  ⏳ Запрос к Yandex GPT...")
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
         if response.status_code == 200:
@@ -63,25 +66,42 @@ def improve_title_with_yandex_gpt(original_title):
             print(f"  ✅ Yandex GPT: {improved[:50]}...")
             if len(improved) > 5 and len(improved) <= 100:
                 return improved
+            else:
+                print(f"  ⚠️ Ответ не подходит по длине: {len(improved)} символов")
+                return original_title
+        elif response.status_code == 401:
+            print(f"  ❌ Ошибка 401: неверный API-ключ Yandex Cloud")
+            print(f"  Проверь секрет YC_API_KEY в GitHub Secrets")
+            return original_title
         else:
             print(f"  ❌ Ошибка Yandex GPT: {response.status_code}")
             print(f"  Ответ: {response.text[:200]}")
+            if retry < 2:
+                print(f"  🔄 Повторная попытка {retry+1}/2 через 5 секунд...")
+                time.sleep(5)
+                return improve_title_with_yandex_gpt(original_title, retry+1)
+            return original_title
             
     except Exception as e:
         print(f"  ❌ Исключение: {e}")
-    
-    return original_title
+        return original_title
 
 def is_ai_news(text):
-    keywords = ['openai', 'chatgpt', 'gpt', 'deepseek', 'gemini', 'claude', 'llama', 'нейросеть', 'ии', 'ai']
-    return any(kw in text.lower() for kw in keywords)
+    keywords = ['openai', 'chatgpt', 'gpt', 'deepseek', 'gemini', 'claude', 
+                'llama', 'нейросеть', 'нейронная сеть', 'ии', 'ai', 
+                'искусственный интеллект', 'kling', 'midjourney', 'dalle']
+    text_lower = text.lower()
+    for kw in keywords:
+        if kw in text_lower:
+            return True
+    return False
 
 def escape_html(text):
     if not text:
         return text
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
-def get_news_from_telegram(channel_name, limit=3):
+def get_news_from_telegram(channel_name, limit=5):
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -104,7 +124,10 @@ def get_news_from_telegram(channel_name, limit=3):
                 if is_ai_news(text):
                     link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
                     original = text[:200]
+                    print(f"\n--- Обработка новости ---")
+                    print(f"📝 Оригинал: {original[:80]}...")
                     improved = improve_title_with_yandex_gpt(original)
+                    print(f"✨ Результат: {improved[:80]}...")
                     articles.append({'title': improved[:120], 'link': link})
     except Exception as e:
         print(f"Ошибка {channel_name}: {e}")
@@ -138,17 +161,25 @@ def send_to_telegram(articles):
 def main():
     print("🚀 Запуск бота с Yandex GPT...")
     print(f"📡 Канал: {CHANNEL_ID}")
-    print(f"🔑 Yandex API ключ: {'✅ НАЙДЕН' if YANDEX_API_KEY else '❌ НЕТ'}")
+    print(f"🔑 Yandex Cloud API ключ: {'✅ НАЙДЕН' if YC_API_KEY else '❌ НЕТ'}")
+    
+    if YC_API_KEY:
+        print(f"   Начинается с: {YC_API_KEY[:10]}...")
     
     if not BOT_TOKEN or not CHANNEL_ID:
-        print("❌ Ошибка: нет секретов")
+        print("❌ Ошибка: нет TELEGRAM_BOT_TOKEN или CHANNEL_ID")
         sys.exit(1)
     
-    if not YANDEX_API_KEY:
-        print("⚠️ Yandex GPT не будет работать — добавь секрет YANDEX_API_KEY")
+    if not YC_API_KEY:
+        print("⚠️ Yandex GPT не будет работать — добавь секрет YC_API_KEY")
+        print("   Создай API-ключ для сервисного аккаунта в Yandex Cloud")
     
     articles = get_all_news()
-    print(f"📊 Найдено новостей: {len(articles)}")
+    print(f"\n📊 Всего новостей: {len(articles)}")
+    
+    if articles:
+        print(f"\n📝 ПЕРВАЯ НОВОСТЬ ДЛЯ ОТПРАВКИ:")
+        print(f"   {articles[0]['title']}")
     
     success = send_to_telegram(articles)
     sys.exit(0 if success else 1)
