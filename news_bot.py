@@ -9,6 +9,8 @@ RSS_SOURCES = [
     "https://habr.com/ru/rss/hub/ai/all/?fl=ru",
     "https://3dnews.ru/news/ai/export_rss_news/",
     "https://www.cnews.ru/rubric/ai/export_rss_news/",
+    "https://robohunter.ru/feed.xml",
+    "https://www.ixbt.com/export/news/ai.rss",
 ]
 
 # === ИНИЦИАЛИЗАЦИЯ ===
