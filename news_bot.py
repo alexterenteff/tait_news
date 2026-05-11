@@ -58,7 +58,7 @@ def collect_news():
 def generate_summary(news_list):
     """Генерирует сводку с помощью DeepSeek"""
     if not news_list:
-        return "За последний час нет новых новостей об ИИ."
+        return "За последний час нет новых новостей об ИИ.\n\n📱 Подпишись: @tAiT"
     
     news_text = "\n\n".join([
         f"🔹 {item['title']}\n{item['summary'][:200]}\n{item['link']}"
