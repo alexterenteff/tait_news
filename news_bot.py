@@ -12,12 +12,14 @@ YC_FOLDER_ID = os.environ.get("YC_FOLDER_ID")
 # === НАСТРОЙКИ ===
 TELEGRAM_CHANNELS = [
     "vibecoding_tg",
-    "deeplearning_ru"   # временно отключим, если там нет свежих
+    "deeplearning_ru"
 ]
-NEWS_LIMIT = 15
-MAX_AGE_DAYS = 2      # Новости не старше 2 дней (гибко)
+NEWS_LIMIT = 15          # Сколько постов парсить с каждого канала
+MAX_AGE_DAYS = 2         # Новости не старше 2 дней
+MAX_POSTS_IN_MESSAGE = 10 # Максимум новостей в одном сообщении
 
 def improve_title_with_yandex_gpt(original_title):
+    """Переписывает заголовок через Yandex GPT"""
     if not YC_API_KEY or not YC_FOLDER_ID:
         return original_title
 
@@ -57,11 +59,16 @@ def improve_title_with_yandex_gpt(original_title):
     return original_title
 
 def is_ai_news(text):
-    keywords = ['gpt', 'chatgpt', 'openai', 'deepseek', 'claude', 'llama', 'gemini', 'kling',
-                'нейросеть', 'ии', 'ai', 'midjourney', 'dalle', 'yandex gpt', 'gigachat', 'vibecoding']
+    """Проверяет, относится ли текст к ИИ"""
+    keywords = [
+        'gpt', 'chatgpt', 'openai', 'deepseek', 'claude', 'llama', 'gemini', 'kling',
+        'нейросеть', 'нейронная сеть', 'ии', 'ai', 'искусственный интеллект',
+        'midjourney', 'dalle', 'yandex gpt', 'gigachat', 'vibecoding'
+    ]
     return any(kw in text.lower() for kw in keywords)
 
 def escape_html(text):
+    """Экранирует HTML-спецсимволы"""
     if not text:
         return text
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -78,12 +85,13 @@ def parse_telegram_date(date_str):
 def is_fresh(post_date):
     """Проверяет, свежая ли новость (не старше MAX_AGE_DAYS дней)"""
     if not post_date:
-        return True  # если дату не удалось распарсить — публикуем
+        return True
     now = datetime.now(timezone.utc)
     age = now - post_date
     return age.days <= MAX_AGE_DAYS
 
 def get_news_from_telegram(channel_name, limit=NEWS_LIMIT):
+    """Парсит Telegram-канал и возвращает свежие новости"""
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -108,8 +116,6 @@ def get_news_from_telegram(channel_name, limit=NEWS_LIMIT):
                     post_date = parse_telegram_date(dates[i])
                 
                 if not is_fresh(post_date):
-                    date_str = post_date.strftime('%Y-%m-%d') if post_date else 'нет даты'
-                    print(f"  ⏭️ Пропущено (старее {MAX_AGE_DAYS} дней): {date_str} - {clean[:40]}...")
                     continue
                 
                 if clean and len(clean) > 30 and is_ai_news(clean):
@@ -126,27 +132,41 @@ def get_news_from_telegram(channel_name, limit=NEWS_LIMIT):
     return articles
 
 def send_to_telegram(articles):
+    """Отправляет новости в Telegram канал"""
     if not articles:
         msg = "🤖 Свежих новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
     else:
         msg = "🧠 <b>Свежие новости об ИИ</b>\n\n"
-        for a in articles[:10]:
-            msg += f"• <a href=\"{a['link']}\">{escape_html(a['title'])}</a>\n\n"
+        for a in articles[:MAX_POSTS_IN_MESSAGE]:
+            safe_title = escape_html(a['title'])
+            msg += f"• <a href=\"{a['link']}\">{safe_title}</a>\n\n"
         msg += "📱 <a href=\"https://t.me/tAiT_news\">Подпишись: @tAiT_news</a>"
     
-    r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-        "chat_id": CHANNEL_ID, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True
-    }, timeout=15)
-    return r.json().get('ok', False)
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+            "chat_id": CHANNEL_ID,
+            "text": msg,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True
+        }, timeout=15)
+        return r.json().get('ok', False)
+    except Exception as e:
+        print(f"❌ Ошибка отправки: {e}")
+        return False
 
 def main():
-    print("🚀 Бот с Yandex GPT (фильтр свежести: не старше MAX_AGE_DAYS дней)")
+    print("🚀 Бот с Yandex GPT (фильтр свежести включён)")
     print(f"📡 Каналы: {', '.join(TELEGRAM_CHANNELS)}")
     print(f"⏰ Публикуем новости не старше {MAX_AGE_DAYS} дней")
+    print(f"📊 Максимум новостей в посте: {MAX_POSTS_IN_MESSAGE}")
+    
+    if not BOT_TOKEN or not CHANNEL_ID:
+        print("❌ Ошибка: TELEGRAM_BOT_TOKEN или CHANNEL_ID не найдены")
+        sys.exit(1)
     
     if not YC_API_KEY or not YC_FOLDER_ID:
-        print("❌ Секреты не найдены")
-        sys.exit(1)
+        print("⚠️ Предупреждение: Yandex GPT не будет работать (нет ключей)")
+        print("   Заголовки будут публиковаться без изменений")
     
     all_articles = []
     for channel in TELEGRAM_CHANNELS:
@@ -154,15 +174,25 @@ def main():
         articles = get_news_from_telegram(channel, NEWS_LIMIT)
         all_articles.extend(articles)
     
-    unique = []
+    # Удаление дубликатов по заголовку
     seen = set()
+    unique_articles = []
     for a in all_articles:
         if a['title'] not in seen:
             seen.add(a['title'])
-            unique.append(a)
+            unique_articles.append(a)
     
-    print(f"\n📊 Найдено свежих уникальных новостей: {len(unique)}")
-    send_to_telegram(unique)
+    print(f"\n📊 Найдено свежих уникальных новостей: {len(unique_articles)}")
+    print(f"📤 Отправляем в Telegram...")
+    
+    success = send_to_telegram(unique_articles)
+    
+    if success:
+        print("✅ Готово!")
+    else:
+        print("❌ Ошибка при отправке")
+    
+    sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()
