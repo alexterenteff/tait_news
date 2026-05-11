@@ -47,14 +47,20 @@ def is_ai_news(text):
     return False
 
 def escape_html(text):
-    """Экранирует только HTML-спецсимволы (<, >, &)"""
+    """Экранирует HTML-спецсимволы, но не трогает эмодзи"""
+    if not text:
+        return text
     text = text.replace('&', '&amp;')
     text = text.replace('<', '&lt;')
     text = text.replace('>', '&gt;')
+    text = text.replace('"', '&quot;')
+    text = text.replace("'", '&#39;')
+    # Экранируем фигурные скобки (могут ломать HTML)
+    text = text.replace('{', '&#123;')
+    text = text.replace('}', '&#125;')
     return text
 
 def get_news_from_telegram(channel_name, limit=8):
-    """Парсит Telegram-канал через веб-версию"""
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {
@@ -97,7 +103,6 @@ def get_news_from_telegram(channel_name, limit=8):
     return articles
 
 def get_all_news():
-    """Собирает новости из всех Telegram-каналов"""
     all_news = []
     seen_titles = set()
     
@@ -113,15 +118,18 @@ def get_all_news():
     return all_news
 
 def send_to_telegram(articles):
-    """Отправляет новости в Telegram канал с HTML-ссылками"""
+    """Отправляет новости с HTML-ссылками и подписью источника"""
     if not articles:
         message = "🤖 Новостей об ИИ не найдено.\n\n📱 Подпишись: @tAiT_news"
     else:
         message = "🧠 <b>Свежие новости об ИИ</b>\n\n"
         for art in articles[:15]:
             safe_title = escape_html(art['title'])
-            # Формируем HTML-ссылку: <a href="ссылка">текст</a>
-            message += f"• <a href=\"{art['link']}\">{safe_title}</a>\n\n"
+            source = art.get('source', '')
+            message += f"• <a href=\"{art['link']}\">{safe_title}</a>"
+            if source:
+                message += f" <code>[{source}]</code>"
+            message += "\n\n"
         message += "📱 <a href=\"https://t.me/tAiT_news\">Подпишись: @tAiT_news</a>"
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -157,7 +165,7 @@ def main():
     if articles:
         print("📰 Первые 3 новости:")
         for art in articles[:3]:
-            print(f"  - {art['title'][:60]}...")
+            print(f"  - {art['title'][:60]}... [{art['source']}]")
     
     success = send_to_telegram(articles)
     sys.exit(0 if success else 1)
