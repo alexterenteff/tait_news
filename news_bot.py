@@ -11,11 +11,11 @@ YC_FOLDER_ID = os.environ.get("YC_FOLDER_ID")
 
 # === НАСТРОЙКИ ===
 TELEGRAM_CHANNELS = [
-    "vibecoding_tg",      # ← активный канал
-    # "deeplearning_ru"   # ← временно отключён (нет свежих новостей)
+    "vibecoding_tg",
+    "deeplearning_ru"   # временно отключим, если там нет свежих
 ]
-NEWS_LIMIT = 10
-MAX_AGE_HOURS = 24        # Только новости за последние 24 часа
+NEWS_LIMIT = 15
+MAX_AGE_DAYS = 2      # Новости не старше 2 дней (гибко)
 
 def improve_title_with_yandex_gpt(original_title):
     if not YC_API_KEY or not YC_FOLDER_ID:
@@ -49,13 +49,10 @@ def improve_title_with_yandex_gpt(original_title):
         if response.status_code == 200:
             improved = response.json()['result']['alternatives'][0]['message']['text'].strip()
             improved = improved.strip('"').strip("'")
-            print(f"  ✅ Yandex GPT: {improved[:50]}...")
             if 5 < len(improved) <= 100:
                 return improved
-        else:
-            print(f"  ❌ Ошибка Yandex GPT: {response.status_code}")
     except Exception as e:
-        print(f"  ⚠️ Ошибка: {e}")
+        print(f"  ⚠️ Ошибка Yandex GPT: {e}")
     
     return original_title
 
@@ -70,22 +67,28 @@ def escape_html(text):
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 def parse_telegram_date(date_str):
-    """Преобразует дату из формата Telegram в datetime объект UTC"""
+    """Преобразует дату из формата Telegram в datetime объект"""
     try:
-        # Убираем 'Z' если есть и заменяем на +00:00
         if date_str.endswith('Z'):
             date_str = date_str[:-1] + '+00:00'
         return datetime.fromisoformat(date_str)
     except:
         return None
 
+def is_fresh(post_date):
+    """Проверяет, свежая ли новость (не старше MAX_AGE_DAYS дней)"""
+    if not post_date:
+        return True  # если дату не удалось распарсить — публикуем
+    now = datetime.now(timezone.utc)
+    age = now - post_date
+    return age.days <= MAX_AGE_DAYS
+
 def get_news_from_telegram(channel_name, limit=NEWS_LIMIT):
     articles = []
     url = f"https://t.me/s/{channel_name}"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     
-    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
-    print(f"  🔍 Берём новости не старше {MAX_AGE_HOURS} часов (с {cutoff_time.strftime('%Y-%m-%d %H:%M')} UTC)")
+    print(f"  🔍 Берём новости не старше {MAX_AGE_DAYS} дней")
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -95,33 +98,26 @@ def get_news_from_telegram(channel_name, limit=NEWS_LIMIT):
             texts = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html, re.DOTALL)
             dates = re.findall(r'<time datetime="([^"]+)"', html)
             
-            print(f"  📡 Найдено сообщений: {len(texts)}, дат: {len(dates)}")
-            
             fresh_count = 0
             for i, t in enumerate(texts[:limit]):
                 clean = re.sub(r'<[^>]+>', '', t)
                 clean = clean.replace('&quot;', '"').replace('&amp;', '&').strip()
                 
-                # Проверяем дату
                 post_date = None
                 if i < len(dates):
                     post_date = parse_telegram_date(dates[i])
-                    if post_date:
-                        print(f"  📅 Дата поста {i+1}: {post_date.strftime('%Y-%m-%d %H:%M')}")
                 
-                # Пропускаем старые новости
-                if post_date and post_date < cutoff_time:
-                    print(f"  ⏭️ Пропущено (старше {MAX_AGE_HOURS} ч): дата {post_date.strftime('%Y-%m-%d %H:%M')}")
+                if not is_fresh(post_date):
+                    date_str = post_date.strftime('%Y-%m-%d') if post_date else 'нет даты'
+                    print(f"  ⏭️ Пропущено (старее {MAX_AGE_DAYS} дней): {date_str} - {clean[:40]}...")
                     continue
                 
                 if clean and len(clean) > 30 and is_ai_news(clean):
                     link = f"https://t.me/{post_ids[i]}" if i < len(post_ids) else f"https://t.me/{channel_name}"
-                    print(f"  ✅ СВЕЖАЯ новость: {clean[:60]}...")
+                    print(f"  ✅ Свежая новость: {clean[:60]}...")
                     improved = improve_title_with_yandex_gpt(clean[:200])
                     articles.append({'title': improved[:120], 'link': link})
                     fresh_count += 1
-                elif clean and len(clean) > 30:
-                    print(f"  ⏭️ Не ИИ: {clean[:50]}...")
             
             print(f"  📊 @{channel_name}: свежих новостей {fresh_count}")
     except Exception as e:
@@ -144,9 +140,9 @@ def send_to_telegram(articles):
     return r.json().get('ok', False)
 
 def main():
-    print("🚀 Бот с Yandex GPT (фильтр свежести включён)")
+    print("🚀 Бот с Yandex GPT (фильтр свежести: не старше MAX_AGE_DAYS дней)")
     print(f"📡 Каналы: {', '.join(TELEGRAM_CHANNELS)}")
-    print(f"⏰ Публикуем новости не старше {MAX_AGE_HOURS} часов")
+    print(f"⏰ Публикуем новости не старше {MAX_AGE_DAYS} дней")
     
     if not YC_API_KEY or not YC_FOLDER_ID:
         print("❌ Секреты не найдены")
