@@ -6,14 +6,16 @@ from openai import OpenAI
 
 # === НАСТРОЙКИ ===
 RSS_SOURCES = [
+    
     "https://habr.com/ru/rss/hub/ai/all/?fl=ru",
-    "https://3dnews.ru/news/ai/export_rss_news/",
-    "https://www.cnews.ru/rubric/ai/export_rss_news/",
-    "https://robohunter.ru/feed.xml",
+    "https://naked-science.ru/tags/iskusstvennyj-intellekt/feed",
     "https://www.ixbt.com/export/news/ai.rss",
-    "https://vc.ru/rss/all",
+    "https://robohunter.ru/feed.xml",
     "https://tproger.ru/feed/",
-    "https://json.tv/rss"
+    "https://vc.ru/rss/all",
+    "https://3dnews.ru/news/ai/export_rss_news/",
+    "https://www.cnews.ru/rubric/ai/export_rss_news/"
+
 ]
 
 # === ИНИЦИАЛИЗАЦИЯ ===
@@ -58,7 +60,7 @@ def collect_news():
 def generate_summary(news_list):
     """Генерирует сводку с помощью DeepSeek"""
     if not news_list:
-        return "За последний час нет новых новостей об ИИ.\n\n📱 Подпишись: @tAiT"
+        return "За последний час нет новых новостей об ИИ.\n\n📱 Подпишись: @tAiT_news"
     
     news_text = "\n\n".join([
         f"🔹 {item['title']}\n{item['summary'][:200]}\n{item['link']}"
