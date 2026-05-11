@@ -11,9 +11,9 @@ RSS_SOURCES = [
     "https://www.cnews.ru/rubric/ai/export_rss_news/",
     "https://robohunter.ru/feed.xml",
     "https://www.ixbt.com/export/news/ai.rss",
-    "https://vc.ru/rss/all",                    
-    "https://tproger.ru/feed/",                 
-    "https://json.tv/rss",
+    "https://vc.ru/rss/all",
+    "https://tproger.ru/feed/",
+    "https://json.tv/rss"
 ]
 
 # === ИНИЦИАЛИЗАЦИЯ ===
@@ -29,14 +29,12 @@ def fetch_news_from_rss(feed_url):
     one_hour_ago = datetime.now() - timedelta(hours=1)
     
     for entry in feed.entries:
-        # Пытаемся получить дату
         pub_date = None
         if hasattr(entry, 'published_parsed') and entry.published_parsed:
             pub_date = datetime(*entry.published_parsed[:6])
         elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
             pub_date = datetime(*entry.updated_parsed[:6])
         
-        # Если дата есть и новость свежая — добавляем
         if pub_date and pub_date > one_hour_ago:
             news_list.append({
                 'title': entry.title,
@@ -62,7 +60,6 @@ def generate_summary(news_list):
     if not news_list:
         return "За последний час нет новых новостей об ИИ."
     
-    # Берем только первые 5 новостей, чтобы не перегружать API
     news_text = "\n\n".join([
         f"🔹 {item['title']}\n{item['summary'][:200]}\n{item['link']}"
         for item in news_list[:5]
@@ -111,7 +108,6 @@ def publish_to_telegram(message):
     }
     return requests.post(url, json=payload).json()
 
-# === ГЛАВНЫЙ ЗАПУСК ===
 def main():
     print("🚀 Начинаем сбор новостей...")
     news = collect_news()
@@ -130,10 +126,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-RSS_SOURCES = [
-    "https://habr.com/ru/rss/hub/ai/all/?fl=ru",
-    "https://3dnews.ru/news/ai/export_rss_news/",
-    "https://www.cnews.ru/rubric/ai/export_rss_news/",
-    "https://robohunter.ru/feed.xml",           # добавил
-    "https://www.ixbt.com/export/news/ai.rss"   # добавил
-]
