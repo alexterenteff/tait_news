@@ -1,3 +1,8 @@
+if DEEPSEEK_API_KEY:
+    test_title = "Вышла новая версия ChatGPT с поддержкой видео"
+    improved = improve_title_with_deepseek(test_title)
+    print(f"🔬 ТЕСТ DeepSeek: '{test_title}' → '{improved}'")
+
 import requests
 import os
 import sys
