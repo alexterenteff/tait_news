@@ -2,30 +2,26 @@ name: Hourly AI News Bot
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 * * * *'   # каждый час
   workflow_dispatch:
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   post_news:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.3.0
+      - uses: actions/checkout@v4
       
       - name: Setup Python
-        uses: actions/setup-python@v5.5.0
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           
       - name: Install dependencies
-        run: |
-          pip install feedparser requests openai
-          
+        run: pip install requests
+        
       - name: Run news bot
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python news_bot.py
