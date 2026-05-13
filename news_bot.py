@@ -3,6 +3,7 @@ import os
 import sys
 import re
 import json
+import subprocess
 from datetime import datetime, timedelta, timezone
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -18,7 +19,7 @@ TELEGRAM_CHANNELS = [
 NEWS_LIMIT = 15
 MAX_AGE_DAYS = 2
 MAX_POSTS_IN_MESSAGE = 10
-HISTORY_FILE = "published.json"  # файл для хранения ID опубликованных новостей
+HISTORY_FILE = "published.json"
 
 def load_published_history():
     """Загружает список уже опубликованных новостей из файла"""
@@ -34,6 +35,28 @@ def save_published_history(history):
     """Сохраняет список опубликованных новостей в файл"""
     with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+
+def commit_and_push_history():
+    """Коммитит и пушит изменения history файла в репозиторий"""
+    try:
+        # Настройка git (если не настроен)
+        subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=False)
+        subprocess.run(['git', 'config', 'user.email', 'github-actions[bot]@users.noreply.github.com'], check=False)
+        
+        # Добавляем файл
+        subprocess.run(['git', 'add', HISTORY_FILE], check=False)
+        
+        # Проверяем, есть ли изменения
+        result = subprocess.run(['git', 'diff', '--cached', '--quiet'], check=False)
+        if result.returncode != 0:
+            # Есть изменения — коммитим
+            subprocess.run(['git', 'commit', '-m', f'Update published history ({datetime.now().strftime("%Y-%m-%d %H:%M:%S")})'], check=False)
+            subprocess.run(['git', 'push'], check=False)
+            print(f"✅ История опубликована в репозиторий")
+        else:
+            print(f"📝 Нет новых изменений в истории")
+    except Exception as e:
+        print(f"⚠️ Ошибка при сохранении истории в git: {e}")
 
 def improve_title_with_yandex_gpt(original_title):
     if not YC_API_KEY or not YC_FOLDER_ID:
@@ -120,14 +143,12 @@ def get_news_from_telegram(channel_name, published_ids, limit=NEWS_LIMIT):
                 clean = re.sub(r'<[^>]+>', '', t)
                 clean = clean.replace('&quot;', '"').replace('&amp;', '&').strip()
                 
-                # Получаем уникальный ID поста
                 post_unique_id = None
                 if i < len(post_ids):
                     post_unique_id = post_ids[i]
                 
-                # Пропускаем, если уже опубликовано
                 if post_unique_id and post_unique_id in published_ids:
-                    print(f"  ⏭️ Уже опубликовано: {clean[:40]}... (ID: {post_unique_id})")
+                    print(f"  ⏭️ Уже опубликовано: {clean[:40]}...")
                     continue
                 
                 post_date = None
@@ -168,16 +189,22 @@ def send_to_telegram(articles):
             "parse_mode": "HTML",
             "disable_web_page_preview": True
         }, timeout=15)
-        return r.json().get('ok', False), msg
+        return r.json().get('ok', False)
     except Exception as e:
         print(f"❌ Ошибка отправки: {e}")
-        return False, ""
+        return False
 
 def main():
-    print("🚀 Бот с Yandex GPT (без дублей)")
+    print("🚀 Бот с Yandex GPT (автосохранение истории)")
     print(f"📡 Каналы: {', '.join(TELEGRAM_CHANNELS)}")
     
-    # Загружаем историю опубликованных новостей
+    # Настройка git для push (нужно для сохранения истории)
+    print("🔧 Настройка git для сохранения истории...")
+    subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=False)
+    subprocess.run(['git', 'config', 'user.email', 'github-actions[bot]@users.noreply.github.com'], check=False)
+    subprocess.run(['git', 'pull', '--rebase'], check=False)  # подтягиваем последние изменения
+    
+    # Загружаем историю
     published_ids = load_published_history()
     print(f"📚 Уже опубликовано новостей: {len(published_ids)}")
     
@@ -191,7 +218,7 @@ def main():
         articles = get_news_from_telegram(channel, published_ids, NEWS_LIMIT)
         all_articles.extend(articles)
     
-    # Удаление дубликатов по заголовку (внутри текущей выборки)
+    # Удаление дубликатов по заголовку внутри выборки
     seen = set()
     unique_articles = []
     for a in all_articles:
@@ -206,14 +233,18 @@ def main():
     print(f"\n📊 Найдено новых уникальных новостей: {len(unique_articles)}")
     print(f"📤 Отправляем в Telegram...")
     
-    success, _ = send_to_telegram(unique_articles)
+    success = send_to_telegram(unique_articles)
     
     if success:
-        # Сохраняем ID опубликованных новостей
+        # Сохраняем новые ID
         for article in unique_articles:
             if article.get('unique_id'):
                 published_ids.append(article['unique_id'])
         save_published_history(published_ids)
+        
+        # Коммитим и пушим изменения
+        commit_and_push_history()
+        
         print(f"✅ Готово! Сохранено {len(unique_articles)} новых ID")
     else:
         print("❌ Ошибка при отправке")
