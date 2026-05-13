@@ -2,14 +2,19 @@ name: Hourly AI News Bot
 
 on:
   schedule:
-    - cron: '0 */4 * * *'   # каждые 4 часа (можно менять)
+    - cron: '0 */4 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write  # 👈 ДОБАВИТЬ: разрешает push в репозиторий
 
 jobs:
   post_news:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 👈 ДОБАВИТЬ: нужен для git pull/push
       
       - name: Setup Python
         uses: actions/setup-python@v5
